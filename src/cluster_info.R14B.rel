@@ -19,10 +19,10 @@
 
 {release,
  {"cluster_info", "0.01"},
- {erts, "5.8"},
+ {erts, "5.8.1"},
  [
-  {kernel, "2.14"},
-  {stdlib, "1.17"},
+  {kernel, "2.14.1"},
+  {stdlib, "1.17.1"},
   {sasl, "2.1.9.2"},
 
   {gmt, "0.01"},
