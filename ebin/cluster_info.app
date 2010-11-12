@@ -23,7 +23,8 @@
   {vsn, "0.01"},
   {id, "Cluster info"},
   {modules, [
-	     %% TODO: fill in this list, perhaps
+	     cluster_info,
+	     cluster_info_ex
             ]
   },
   {registered, [ ] },
