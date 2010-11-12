@@ -99,7 +99,7 @@ dump_node(Node, Path) when is_atom(Node), is_list(Path) ->
                                  dump_local_info(Collector),
                                  collector_done(Collector)
                          end),
-    {ok, MRef} = gmt_util:make_monitor(Remote),
+    {ok, MRef} = gmt_util_make_monitor(Remote),
     Res = try
               ok = collect_remote_info(Remote, FH)
           catch X:Y ->
@@ -108,7 +108,7 @@ dump_node(Node, Path) when is_atom(Node), is_list(Path) ->
                   error
           after
               catch file:close(FH),
-              gmt_util:unmake_monitor(MRef)
+              gmt_util_unmake_monitor(MRef)
           end,
     Res.
 
@@ -242,4 +242,52 @@ harvest_reqs(Timeout) ->
             []
     after Timeout ->
             []
+    end.
+
+%% From gmt_util.erl, also Apache Public License'd.
+
+%% @spec (server_spec()) -> {ok, monitor_ref()} | error
+%% @doc Simplify the arcane art of <tt>erlang:monitor/1</tt>:
+%%      create a monitor.
+%%
+%% The arg may be a PID or a {registered_name, node} tuple.
+%% In the case of the tuple, we will use rpc:call/4 to find the
+%% server's actual PID before calling erlang:monitor();
+%% therefore there is a risk of blocking by the RPC call.
+%% To avoid the risk of blocking in this case, use make_monitor/2.
+
+gmt_util_make_monitor(Pid) when is_pid(Pid) ->
+    gmt_util_make_monitor2(Pid);
+gmt_util_make_monitor({Name, Node}) ->
+    case catch rpc:call(Node, erlang, whereis, [Name]) of
+        Pid when is_pid(Pid) ->
+            gmt_util_make_monitor2(Pid);
+        _ ->
+            error
+    end.
+
+gmt_util_make_monitor2(Spec) ->                          % Private func
+    case catch erlang:monitor(process, Spec) of
+        MRef when is_reference(MRef) ->
+            receive
+                {'DOWN', MRef, _, _, _} ->
+                    error
+            after 0 ->
+                    {ok, MRef}
+            end;
+        _ ->
+            error
+    end.
+
+%% @spec (pid()) -> {ok, monitor_ref()} | error
+%% @doc Simplify the arcane art of <tt>erlang:demonitor/1</tt>:
+%%      destroy a monitor.
+
+gmt_util_unmake_monitor(MRef) ->
+    erlang:demonitor(MRef),
+    receive
+        {'DOWN', MRef, _, _, _} ->
+            ok
+    after 0 ->
+            ok
     end.
