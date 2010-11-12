@@ -22,6 +22,9 @@
 -behaviour(application).
 
 %% application callbacks
+%% Note: It is *not* necessary to start this application as a real/true OTP
+%%       application before you can use it.  The application behavior here
+%%       is only to help integrate this code nicely into OTP-style packaging.
 -export([start/0, start/2, stop/1]).
 -export([start_phase/3, prep_stop/1, config_change/3]).
 
@@ -32,14 +35,20 @@
 %% Really useful but ugly hack.
 -export([capture_io/2]).
 
-
+-type dump_return() :: 'ok' | 'error'.
+-type filename()  :: string().
 -spec start() -> {ok, pid()} | {error, any()}.
 -spec start(_,_) -> {ok, pid()} | {error, any()}.
 -spec start_phase(_,_,_) -> 'ok'.
 -spec prep_stop(_) -> any().
 -spec config_change(_,_,_) -> 'ok'.
+-spec register_app(atom()) -> 'ok' | 'undef'.
+-spec dump_node(atom(), filename()) -> dump_return().
+-spec dump_local_node(filename()) -> [dump_return()].
+-spec dump_all_connected(filename()) -> [dump_return()].
+-spec dump_nodes([atom()], filename()) -> [dump_return()].
 -spec stop(_) -> 'ok'.
-
+-spec capture_io(integer(), function()) -> [term()].
 
 %%%----------------------------------------------------------------------
 %%% Callback functions from application
@@ -60,17 +69,12 @@ start(_Type, _StartArgs) ->
 %% Lesser-used callbacks....
 
 start_phase(_Phase, _StartType, _PhaseArgs) ->
-    io:format("DEBUG: ~s:start_phase(~p, ~p, ~p)\n",
-              [?MODULE, _Phase, _StartType, _PhaseArgs]),
     ok.
 
 prep_stop(State) ->
-    io:format("DEBUG: ~s:prep_stop(~p)\n", [?MODULE, State]),
     State.
 
 config_change(_Changed, _New, _Removed) ->
-    io:format("DEBUG: ~s:config_change(~p, ~p, ~p)\n",
-              [?MODULE, _Changed, _New, _Removed]),
     ok.
 
 %% @spec (atom()) -> ok | undef
@@ -146,8 +150,6 @@ format(Pid, Fmt, Args) ->
 %% Returns: any
 %%----------------------------------------------------------------------
 stop(_State) ->
-    io:format("DEBUG: ~s:stop(~p)\n", [?MODULE, _State]),
-    %% gmt_event_h:delete_report_handler(),
     ok.
 
 %%%----------------------------------------------------------------------
@@ -199,7 +201,6 @@ dump_local_info(CPid) ->
 
 dbg(_Fmt, _Args) ->
     ok.
-%     io:format(_Fmt, _Args).
 
 %%%%%%%%%
 
