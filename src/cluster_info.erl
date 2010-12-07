@@ -37,8 +37,8 @@
 
 -type dump_return() :: 'ok' | 'error'.
 -type filename()  :: string().
--spec start() -> {ok, pid()} | {error, any()}.
--spec start(_,_) -> {ok, pid()} | {error, any()}.
+-spec start() -> {ok, pid()}.
+-spec start(_,_) -> {ok, pid()}.
 -spec start_phase(_,_,_) -> 'ok'.
 -spec prep_stop(_) -> any().
 -spec config_change(_,_,_) -> 'ok'.
@@ -258,17 +258,7 @@ harvest_reqs(Timeout) ->
 %% To avoid the risk of blocking in this case, use make_monitor/2.
 
 gmt_util_make_monitor(Pid) when is_pid(Pid) ->
-    gmt_util_make_monitor2(Pid);
-gmt_util_make_monitor({Name, Node}) ->
-    case catch rpc:call(Node, erlang, whereis, [Name]) of
-        Pid when is_pid(Pid) ->
-            gmt_util_make_monitor2(Pid);
-        _ ->
-            error
-    end.
-
-gmt_util_make_monitor2(Spec) ->                          % Private func
-    case catch erlang:monitor(process, Spec) of
+    case catch erlang:monitor(process, Pid) of
         MRef when is_reference(MRef) ->
             receive
                 {'DOWN', MRef, _, _, _} ->
