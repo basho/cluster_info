@@ -21,6 +21,8 @@
 
 -behaviour(application).
 
+-define(DICT_KEY, '^_^--cluster_info').
+
 %% application callbacks
 %% Note: It is *not* necessary to start this application as a real/true OTP
 %%       application before you can use it.  The application behavior here
@@ -31,6 +33,7 @@
 -export([register_app/1,
          dump_node/2, dump_local_node/1, dump_all_connected/1, dump_nodes/2,
          send/2, format/2, format/3]).
+-export([get_limits/0, reset_limits/0]).
 
 %% Really useful but ugly hack.
 -export([capture_io/2]).
@@ -105,8 +108,8 @@ dump_node(Node, Path) when is_atom(Node), is_list(Path) ->
     Res = try
               ok = collect_remote_info(Remote, FH)
           catch X:Y ->
-                  io:format("Error: ~p ~p at ~p\n",
-                            [X, Y, erlang:get_stacktrace()]),
+                  io:format("Error: ~P ~P at ~p\n",
+                            [X, 20, Y, 20, erlang:get_stacktrace()]),
                   error
           after
               catch file:close(FH),
@@ -141,7 +144,7 @@ format(Pid, Fmt) ->
     format(Pid, Fmt, []).
 
 format(Pid, Fmt, Args) ->
-    send(Pid, io_lib:format(Fmt, Args)).
+    send(Pid, safe_format(Fmt, Args)).
 
 %%----------------------------------------------------------------------
 %% Func: stop/1
@@ -242,6 +245,47 @@ harvest_reqs(Timeout) ->
     after Timeout ->
             []
     end.
+
+safe_format(Fmt, Args) ->
+    case get_limits() of
+        {undefined, _} ->
+            io_lib:format(Fmt, Args);
+        {TermMaxSize, FmtMaxBytes} ->
+            riak_err_handler:limited_fmt(Fmt, Args, TermMaxSize, FmtMaxBytes)
+    end.
+
+get_limits() ->
+    case erlang:get(?DICT_KEY) of
+        undefined ->
+            case code:which(riak_err_handler) of
+                non_existing ->
+                    {undefined, undefined};
+                _ ->
+                    %% Use factor of 4 because riak_err's settings are
+                    %% fairly conservative by default, e.g. 64KB.
+                    Apps = [{riak_err, 4}, {cluster_info, 1}],
+                    Res = {try_app_envs(Apps, term_max_size, default_size()),
+                           try_app_envs(Apps, fmt_max_bytes, default_size())},
+                    erlang:put(?DICT_KEY, Res),
+                    Res
+            end;
+        T when is_tuple(T) ->
+            T
+    end.
+
+reset_limits() -> erlang:erase(?DICT_KEY).
+
+default_size() -> 256*1024.
+
+try_app_envs([{App, Factor}|Apps], Key, Default) ->
+    case application:get_env(App, Key) of
+        undefined ->
+            try_app_envs(Apps, Key, Default);
+        {ok, N} ->
+            N * Factor
+    end;
+try_app_envs([], _, Default) ->
+    Default.
 
 %% From gmt_util.erl, also Apache Public License'd.
 
