@@ -22,6 +22,18 @@ support and development teams to diagnose problems in a cluster, as a
 tool to aid capacity planning, and merely to answer a curious question
 like, "What's really going on in there?"
 
+Example usage
+-------------
+
+* `cluster_info:dump_all_connected("/tmp/report.all-nodes.txt").`
+* `cluster_info:dump_local_node("/tmp/report.local-node.txt").`
+* `cluster_info:dump_nodes([riak@boxA, riak@boxB], "/tmp/report.some-nodes.txt").`
+
+See the file (example-output.Riak.txt)[./example-output.Riak.txt] for
+sample output from a single-node Riak system.  Use the regular
+expression `^==* ` to find major & minor sections within the file.
+(*NOTE* The regular expression has a space character at the end of it.)
+
 Licensing
 ---------
 
