@@ -29,7 +29,7 @@ For Basho-specific packaging reasons, the code that implements many of
 the basic info-generating functions are not contained in this source
 repo.  I apologize for that.  Please see the following source:
 
-  https://github.com/basho/riak_core/blob/master/src/riak_core_cinfo_basic.erl
+[https://github.com/basho/riak_core/blob/master/src/riak_core_cinfo_basic.erl](https://github.com/basho/riak_core/blob/master/src/riak_core_cinfo_basic.erl)
 
 This code is also licensed under the Apache Public License version 2.
 Please feel free to use as much or as little of it as you wish.
