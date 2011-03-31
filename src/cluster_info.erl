@@ -247,6 +247,9 @@ harvest_reqs(Timeout) ->
     end.
 
 safe_format(Fmt, Args) ->
+    list_to_binary(safe_format2(Fmt, Args)).
+
+safe_format2(Fmt, Args) ->
     case get_limits() of
         {undefined, _} ->
             io_lib:format(Fmt, Args);
