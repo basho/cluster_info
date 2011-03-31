@@ -34,6 +34,56 @@ sample output from a single-node Riak system.  Use the regular
 expression `^==* ` to find major & minor sections within the file.
 (*NOTE* The regular expression has a space character at the end of it.)
 
+Configuring maximum string length formatting limits
+---------------------------------------------------
+
+It's a well-known feature of Erlang that the default string
+representation is a list of byte values.  Strings can consume much
+more RAM than if the equivalent data were stored in the Erlang binary
+data type instead.  If a prerequisite OTP application, `riak_err`, is
+available, then this application can use the
+`riak_err_handler:limited_fmt/4` function to attempt to limit the
+amount of memory used while generating reports.
+
+To limit the amount of RAM used to format strings in a report, this
+application will attempt to fetch the following OTP application
+environment variables from either the `riak_err` app's variables or
+the `cluster_info` app's variables:
+
+* `term_max_size` Report output is formatted via
+`cluster_info:format(FormatString, ArgList)` calls.
+If the total size of ArgList is more than `term_max_size`,
+then we'll ignore FormatString and log the message with a well-known
+(and therefore safe) formatting string.  
+* `fmt_max_bytes` When formatting a log-related term that might
+be "big", limit the term's formatted output to a maximum of
+`fmt_max_bytes` bytes.  
+
+The default for both values is 256KB.
+
+You have several options for configuring these OTP application
+environment variables:
+
+* Add the following the `env` section of your copy of the
+  package's `ebin/cluster_info.app` file
+
+    {env, [{term_max_size, 65536}, {fmt_max_bytes, 65536}]}
+
+* Add the following to your packaging's system configuration file
+  (which is specified by the `-config /path/to/file` flag to the
+  runtime system ... see the 
+  [online docs for configuration OTP applications, "7.8  Configuring an Application"](http://www.erlang.org/doc/design_principles/applications.html#id71589)
+  for more details:
+
+    {cluster_info, [{term_max_size, 65536}, {fmt_max_bytes, 65536}]}
+
+* Execute the following code to set the environment variables at
+  runtime.  Please note that setting these parameters will only affect
+  processes that are created after the values are set:
+
+    application:set_env(term_max_size, 65536),
+    application:set_env(fmt_max_bytes, 65536)
+
 Licensing
 ---------
 
