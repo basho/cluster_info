@@ -65,6 +65,12 @@ start() ->
     start(start, []).
 
 start(_Type, _StartArgs) ->
+    case application:get_env(?MODULE, skip_basic_registration) of
+        undefined ->
+            register_app(cluster_info_basic);
+        _ ->
+            ok
+    end,
     {ok, spawn(fun() -> receive pro_forma -> ok end end)}.
 
 %% Lesser-used callbacks....
