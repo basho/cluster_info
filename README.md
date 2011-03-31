@@ -81,8 +81,18 @@ environment variables:
   runtime.  Please note that setting these parameters will only affect
   processes that are created after the values are set:
 
-    `application:set_env(term_max_size, 65536),
-    application:set_env(fmt_max_bytes, 65536)`
+    `application:set_env(cluster_info, term_max_size, 65536),
+    application:set_env(cluster_info, fmt_max_bytes, 65536)`
+
+If the `term_max_size` environment variable is not defined (by neither
+the `riak_err` application nor the `cluster_info` application), then
+the length of formatted strings will not be restricted.
+
+If the `term_max_size` environment variable is defined but the BEAM
+object file `riak_err_handler` is not available, then attempts to
+generate a report will throw undefined function exceptions.  As noted
+at the top of this section, the `riak_err` application must be
+compiled and packaged together with the `cluster_info` application.
 
 Licensing
 ---------
