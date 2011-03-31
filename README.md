@@ -53,8 +53,8 @@ the `cluster_info` app's variables:
 * `term_max_size` Report output is formatted via
 `cluster_info:format(FormatString, ArgList)` calls.
 If the total size of ArgList is more than `term_max_size`,
-then we'll ignore FormatString and log the message with a well-known
-(and therefore safe) formatting string.  
+then we'll ignore `FormatString` and log the message with a well-known
+(and therefore safe) formatting string instead.
 * `fmt_max_bytes` When formatting a log-related term that might
 be "big", limit the term's formatted output to a maximum of
 `fmt_max_bytes` bytes.  
@@ -67,7 +67,7 @@ environment variables:
 * Add the following the `env` section of your copy of the
   package's `ebin/cluster_info.app` file
 
-    {env, [{term_max_size, 65536}, {fmt_max_bytes, 65536}]}
+    `{env, [{term_max_size, 65536}, {fmt_max_bytes, 65536}]}`
 
 * Add the following to your packaging's system configuration file
   (which is specified by the `-config /path/to/file` flag to the
@@ -75,14 +75,14 @@ environment variables:
   [online docs for configuration OTP applications, "7.8  Configuring an Application"](http://www.erlang.org/doc/design_principles/applications.html#id71589)
   for more details:
 
-    {cluster_info, [{term_max_size, 65536}, {fmt_max_bytes, 65536}]}
+    `{cluster_info, [{term_max_size, 65536}, {fmt_max_bytes, 65536}]}`
 
 * Execute the following code to set the environment variables at
   runtime.  Please note that setting these parameters will only affect
   processes that are created after the values are set:
 
-    application:set_env(term_max_size, 65536),
-    application:set_env(fmt_max_bytes, 65536)
+    `application:set_env(term_max_size, 65536),
+    application:set_env(fmt_max_bytes, 65536)`
 
 Licensing
 ---------
