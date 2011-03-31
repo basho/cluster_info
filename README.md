@@ -64,11 +64,6 @@ The default for both values is 256KB.
 You have several options for configuring these OTP application
 environment variables:
 
-* Add the following the `env` section of your copy of the
-  package's `ebin/cluster_info.app` file
-
-    `{env, [{term_max_size, 65536}, {fmt_max_bytes, 65536}]}`
-
 * Add the following to your packaging's system configuration file
   (which is specified by the `-config /path/to/file` flag to the
   runtime system ... see the 
@@ -76,6 +71,11 @@ environment variables:
   for more details:
 
     `{cluster_info, [{term_max_size, 65536}, {fmt_max_bytes, 65536}]}`
+
+* Add the following the `env` section of your copy of the
+  package's `ebin/cluster_info.app` file
+
+    `{env, [{term_max_size, 65536}, {fmt_max_bytes, 65536}]}`
 
 * Execute the following code to set the environment variables at
   runtime.  Please note that setting these parameters will only affect
@@ -101,4 +101,7 @@ The `cluster_info` application was written by
 [Gemini Mobile Technologies, Inc.](http://www.geminimobile.com/)
 and is licensed under the
 [Apache Public License version 2.0](http://www.apache.org/licenses/LICENSE-2.0).
+This fork of the code has been subsequently modified by
+[Basho Technologies, Inc.](http://www.basho.com/) and is distributed
+under the same license.
 
