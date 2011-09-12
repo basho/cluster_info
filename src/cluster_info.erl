@@ -40,18 +40,6 @@
 
 -type dump_return() :: 'ok' | 'error'.
 -type filename()  :: string().
--spec start() -> {ok, pid()}.
--spec start(_,_) -> {ok, pid()}.
--spec start_phase(_,_,_) -> 'ok'.
--spec prep_stop(_) -> any().
--spec config_change(_,_,_) -> 'ok'.
--spec register_app(atom()) -> 'ok' | 'undef'.
--spec dump_node(atom(), filename()) -> dump_return().
--spec dump_local_node(filename()) -> [dump_return()].
--spec dump_all_connected(filename()) -> [dump_return()].
--spec dump_nodes([atom()], filename()) -> [dump_return()].
--spec stop(_) -> 'ok'.
--spec capture_io(integer(), function()) -> [term()].
 
 %%%----------------------------------------------------------------------
 %%% Callback functions from application
@@ -61,9 +49,11 @@
 %% Func: start/2
 %% Returns: {ok, Pid}
 %%----------------------------------------------------------------------
+-spec start() -> {ok, pid()}.
 start() ->
     start(start, []).
 
+-spec start(_,_) -> {ok, pid()}.
 start(_Type, _StartArgs) ->
     case application:get_env(?MODULE, skip_basic_registration) of
         undefined ->
@@ -75,22 +65,24 @@ start(_Type, _StartArgs) ->
 
 %% Lesser-used callbacks....
 
+-spec start_phase(_,_,_) -> 'ok'.
 start_phase(_Phase, _StartType, _PhaseArgs) ->
     ok.
 
+-spec prep_stop(_) -> any().
 prep_stop(State) ->
     State.
 
+-spec config_change(_,_,_) -> 'ok'.
 config_change(_Changed, _New, _Removed) ->
     ok.
 
-%% @spec (atom()) -> ok | undef
 %% @doc "Register" an application with the cluster_info app.
 %%
 %% "Registration" is a misnomer: we're really interested only in
 %% having the code server load the callback module, and it's that
 %% side-effect with the code server that we rely on later.
-
+-spec register_app(atom()) -> 'ok' | 'undef'.
 register_app(CallbackMod) ->
     try
         CallbackMod:cluster_info_init()
@@ -99,9 +91,8 @@ register_app(CallbackMod) ->
             undef
     end.
 
-%% @spec (atom(), path()) -> term()
 %% @doc Dump the cluster_info on Node to the specified local File.
-
+-spec dump_node(atom(), filename()) -> dump_return().
 dump_node(Node, Path) when is_atom(Node), is_list(Path) ->
     io:format("dump_node ~p, file ~p:~p\n", [Node, node(), Path]),
     Collector = self(),
@@ -123,23 +114,20 @@ dump_node(Node, Path) when is_atom(Node), is_list(Path) ->
           end,
     Res.
 
-%% @spec (path()) -> term()
 %% @doc Dump the cluster_info on local node to the specified File.
-
+-spec dump_local_node(filename()) -> [dump_return()].
 dump_local_node(Path) ->
     dump_nodes([node()], Path).
 
-%% @spec (path()) -> term()
 %% @doc Dump the cluster_info on all connected nodes to the specified
 %%      File.
-
+-spec dump_all_connected(filename()) -> [dump_return()].
 dump_all_connected(Path) ->
     dump_nodes([node()|nodes()], Path).
 
-%% @spec (list(atom()), path()) -> term()
 %% @doc Dump the cluster_info on all specified nodes to the specified
 %%      File.
-
+-spec dump_nodes([atom()], filename()) -> [dump_return()].
 dump_nodes(Nodes, Path) ->
     [dump_node(Node, Path) || Node <- lists:sort(Nodes)].
 
@@ -156,6 +144,7 @@ format(Pid, Fmt, Args) ->
 %% Func: stop/1
 %% Returns: any
 %%----------------------------------------------------------------------
+-spec stop(_) -> 'ok'.
 stop(_State) ->
     ok.
 
@@ -213,6 +202,7 @@ dbg(_Fmt, _Args) ->
 
 %% @doc This is an untidy hack.
 
+-spec capture_io(integer(), function()) -> [term()].
 capture_io(Timeout, Fun) ->
     Me = self(),
     spawn(fun() -> capture_io2(Timeout, Fun, Me) end),
