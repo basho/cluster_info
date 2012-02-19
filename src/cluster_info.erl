@@ -61,6 +61,16 @@ start(_Type, _StartArgs) ->
         _ ->
             ok
     end,
+    case application:get_env(?MODULE, web_enabled) of
+        true ->
+            application:start(webmachine),
+            Route = case application:get_env(?MODULE, web_path) of
+                        undefined -> ["cluster_info"];
+                        Path -> Path
+                    end,
+            webmachine_router:add_route({Route, cluster_info_wm, []});
+        _ -> ok
+    end,
     {ok, spawn(fun() -> receive pro_forma -> ok end end)}.
 
 %% Lesser-used callbacks....

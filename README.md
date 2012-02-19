@@ -94,6 +94,38 @@ generate a report will throw undefined function exceptions.  As noted
 at the top of this section, the `riak_err` application must be
 compiled and packaged together with the `cluster_info` application.
 
+Requesting dumps over HTTP
+--------------------------
+
+`cluster_info` includes a Webmachine resource that allows you to fetch
+dumps over HTTP, which could be useful as part of an automated
+monitoring system. The resource is disabled by default, but can be
+enabled by setting the `cluster_info` environment variable
+`web_enabled` to `true`. That will cause the resource to be added to
+the Webmachine routes at the default URI of "/cluster_info". The path
+to the resource can also be configured via the `web_path` variable,
+which should be a valid Webmachine path specification. Finally, the
+resource makes use of the local filesystem for storing `cluster_info`
+dumps while they are being generated. The path it uses defaults to the
+operating system's temporary directory but can be configured via the
+`temp_dir` variable.
+
+Configuration example:
+
+    {cluster_info, [{web_enabled, true},
+                    {web_path, ["ci"]},
+                    {temp_dir, "/tmp/ci/dumps"}]}.
+
+By default, the resource performs only a local `cluster_info` dump,
+but can also dump all connected nodes or specific nodes using the
+`node` query parameter. The following request will dump all nodes:
+
+    GET /cluster_info?node=all
+
+The request below will dump nodes `ci@a` and `ci@b`:
+
+    GET /cluster_info?node=ci@a&node=ci@b
+
 Licensing
 ---------
 
