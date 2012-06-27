@@ -1,6 +1,8 @@
 The cluster_info application
 ============================
 
+[![Build Status](https://secure.travis-ci.org/basho/cluster_info.png?branch=master)](http://travis-ci.org/basho/cluster_info)
+
 The `cluster_info` application provides a flexible and easily-extendible
 way to dump the state of a cluster of Erlang nodes.
 
