@@ -1,5 +1,6 @@
 %%%----------------------------------------------------------------------
 %%% Copyright: (c) 2009-2010 Gemini Mobile Technologies, Inc.  All rights reserved.
+%%% Copyright: (c) 2010-2012 Basho Technologies, Inc.  All rights reserved.
 %%%
 %%% Licensed under the Apache License, Version 2.0 (the "License");
 %%% you may not use this file except in compliance with the License.
@@ -31,13 +32,18 @@
 -export([start_phase/3, prep_stop/1, config_change/3]).
 
 -export([register_app/1,
-         dump_node/2, dump_local_node/1, dump_all_connected/1, dump_nodes/2,
+         dump_node/2, dump_node/3,
+         dump_local_node/1, dump_local_node/2,
+         dump_all_connected/1, dump_all_connected/2,
+         dump_nodes/2, dump_nodes/3,
+         list_reports/0, list_reports/1,
          send/2, format/2, format/3]).
 -export([get_limits/0, reset_limits/0]).
 
 %% Really useful but ugly hack.
 -export([capture_io/2]).
 
+-type dump_option() :: {'modules', [atom()]}.
 -type dump_return() :: 'ok' | 'error'.
 -type filename()  :: string().
 
@@ -93,12 +99,18 @@ register_app(CallbackMod) ->
 
 %% @doc Dump the cluster_info on Node to the specified local File.
 -spec dump_node(atom(), filename()) -> dump_return().
-dump_node(Node, Path) when is_atom(Node), is_list(Path) ->
+
+dump_node(Node, Path) ->
+    dump_node(Node, Path, []).
+
+-spec dump_node(atom(), string(), [dump_option()]) -> dump_return().
+
+dump_node(Node, Path, Opts) when is_atom(Node), is_list(Path) ->
     io:format("dump_node ~p, file ~p:~p\n", [Node, node(), Path]),
     Collector = self(),
     {ok, FH} = file:open(Path, [append]),
     Remote = spawn(Node, fun() ->
-                                 dump_local_info(Collector),
+                                 dump_local_info(Collector, Opts),
                                  collector_done(Collector)
                          end),
     {ok, MRef} = gmt_util_make_monitor(Remote),
@@ -117,19 +129,45 @@ dump_node(Node, Path) when is_atom(Node), is_list(Path) ->
 %% @doc Dump the cluster_info on local node to the specified File.
 -spec dump_local_node(filename()) -> [dump_return()].
 dump_local_node(Path) ->
-    dump_nodes([node()], Path).
+    dump_local_node(Path, []).
+
+dump_local_node(Path, Opts) ->
+    dump_nodes([node()], Path, Opts).
 
 %% @doc Dump the cluster_info on all connected nodes to the specified
 %%      File.
 -spec dump_all_connected(filename()) -> [dump_return()].
+
 dump_all_connected(Path) ->
-    dump_nodes(lists:sort([node()|nodes()]), Path).
+    dump_all_connected(Path, []).
+
+dump_all_connected(Path, Opts) ->
+    dump_nodes(lists:sort([node()|nodes()]), Path, Opts).
 
 %% @doc Dump the cluster_info on all specified nodes to the specified
 %%      File.
 -spec dump_nodes([atom()], filename()) -> [dump_return()].
 dump_nodes(Nodes, Path) ->
-    [dump_node(Node, Path) || Node <- lists:sort(Nodes)].
+    dump_nodes(Nodes, Path, []).
+
+dump_nodes(Nodes, Path, Opts) ->
+    [dump_node(Node, Path, Opts) || Node <- lists:sort(Nodes)].
+
+list_reports() ->
+    list_reports("all modules, please").
+
+list_reports(Mod) ->
+    GetGens = fun (M) -> try
+                             M:cluster_info_generator_funs()
+                         catch _:_ ->
+                                 []
+                         end
+              end,
+    Filter = fun(X) -> not is_atom(Mod) orelse X == Mod end,
+    Mods = [M || {M, _} <- lists:sort(code:all_loaded())],
+    lists:flatten([{M, Name} || M <- Mods,
+                                Filter(M),
+                                {Name, _} <- GetGens(M)]).
 
 send(Pid, IoList) ->
     Pid ! {collect_data, self(), IoList}.
@@ -170,15 +208,20 @@ collect_remote_info(Remote, FH) ->
 collector_done(Pid) ->
     Pid ! {collect_done, self()}.
 
-dump_local_info(CPid) ->
+dump_local_info(CPid, Opts) ->
     dbg("D: node = ~p\n", [node()]),
     format(CPid, "\n"),
     format(CPid, "Local node cluster_info dump\n"),
     format(CPid, "============================\n"),
     format(CPid, "\n"),
     format(CPid, "== Node: ~p\n", [node()]),
+    format(CPid, "   Options: ~p\n", [Opts]),
     format(CPid, "\n"),
-    Mods = lists:sort([Mod || {Mod, _Path} <- code:all_loaded()]),
+    Mods0 = lists:sort([Mod || {Mod, _Path} <- code:all_loaded()]),
+    Filters = proplists:get_value(modules, Opts, [all]),
+    Mods = [M || M <- Mods0,
+                 lists:member(all, Filters) orelse
+                     lists:member(M, Filters)],
     [case (catch Mod:cluster_info_generator_funs()) of
          {'EXIT', _} ->
              ok;
