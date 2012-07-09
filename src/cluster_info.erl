@@ -123,7 +123,7 @@ dump_local_node(Path) ->
 %%      File.
 -spec dump_all_connected(filename()) -> [dump_return()].
 dump_all_connected(Path) ->
-    dump_nodes([node()|nodes()], Path).
+    dump_nodes(lists:sort([node()|nodes()]), Path).
 
 %% @doc Dump the cluster_info on all specified nodes to the specified
 %%      File.
