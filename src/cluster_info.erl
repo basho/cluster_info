@@ -32,7 +32,7 @@
 
 -export([register_app/1,
          dump_node/2, dump_local_node/1, dump_all_connected/1, dump_nodes/2,
-         send/2, format/2, format/3]).
+         send/2, format/2, format/3, format_noescape/2, format_noescape/3]).
 -export([get_limits/0, reset_limits/0]).
 
 %% Really useful but ugly hack.
@@ -132,13 +132,27 @@ dump_nodes(Nodes, Path) ->
     [dump_node(Node, Path) || Node <- lists:sort(Nodes)].
 
 send(Pid, IoList) ->
-    Pid ! {collect_data, self(), IoList}.
+    ReList = [{"&", "\\&amp;"}, {"<", "\\&lt;"}],
+    Str = lists:foldl(fun({RE, Replace}, Str) ->
+                              re:replace(Str, RE, Replace, [{return,binary},
+                                                            global])
+                      end, IoList, ReList),
+    send2(Pid, Str).
+
+send2(Pid, IoData) ->
+    Pid ! {collect_data, self(), IoData}.
 
 format(Pid, Fmt) ->
     format(Pid, Fmt, []).
 
 format(Pid, Fmt, Args) ->
     send(Pid, safe_format(Fmt, Args)).
+
+format_noescape(Pid, Fmt) ->
+    format_noescape(Pid, Fmt, []).
+
+format_noescape(Pid, Fmt, Args) ->
+    send2(Pid, safe_format(Fmt, Args)).
 
 %%----------------------------------------------------------------------
 %% Func: stop/1
@@ -173,10 +187,7 @@ collector_done(Pid) ->
 dump_local_info(CPid) ->
     dbg("D: node = ~p\n", [node()]),
     format(CPid, "\n"),
-    format(CPid, "Local node cluster_info dump\n"),
-    format(CPid, "============================\n"),
-    format(CPid, "\n"),
-    format(CPid, "== Node: ~p\n", [node()]),
+    format_noescape(CPid, "<h1>Local node cluster_info dump, Node: ~p</h1>\n", [node()]),
     format(CPid, "\n"),
     Mods = lists:sort([Mod || {Mod, _Path} <- code:all_loaded()]),
     [case (catch Mod:cluster_info_generator_funs()) of
@@ -185,8 +196,11 @@ dump_local_info(CPid) ->
          NameFuns when is_list(NameFuns) ->
              [try
                   dbg("D: generator ~p ~s\n", [Fun, Name]),
-                  format(CPid, "= Generator name: ~s\n\n", [Name]),
+                  format_noescape(CPid, "<h2>Report: ~s (~p)</h2>\n\n",
+                                  [Name, node()]),
+                  format_noescape(CPid, "<pre>\n", []),
                   Fun(CPid),
+                  format_noescape(CPid, "</pre>\n", []),
                   format(CPid, "\n")
               catch X:Y ->
                       format(CPid, "Error in ~p: ~p ~p at ~p\n",
@@ -243,9 +257,6 @@ harvest_reqs(Timeout) ->
     end.
 
 safe_format(Fmt, Args) ->
-    list_to_binary(safe_format2(Fmt, Args)).
-
-safe_format2(Fmt, Args) ->
     case get_limits() of
         {undefined, _} ->
             io_lib:format(Fmt, Args);
