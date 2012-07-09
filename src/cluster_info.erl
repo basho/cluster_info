@@ -1,5 +1,6 @@
 %%%----------------------------------------------------------------------
 %%% Copyright: (c) 2009-2010 Gemini Mobile Technologies, Inc.  All rights reserved.
+%%% Copyright: (c) 2010-2012 Basho Technologies, Inc.  All rights reserved.
 %%%
 %%% Licensed under the Apache License, Version 2.0 (the "License");
 %%% you may not use this file except in compliance with the License.
@@ -131,9 +132,6 @@ dump_all_connected(Path) ->
 dump_nodes(Nodes, Path) ->
     [dump_node(Node, Path) || Node <- lists:sort(Nodes)].
 
-send(Pid, IoList) ->
-    Pid ! {collect_data, self(), IoList}.
-
 format(Pid, Fmt) ->
     format(Pid, Fmt, []).
 
@@ -160,6 +158,9 @@ collect_remote_info(Remote, FH) ->
             ok;
         {collect_data, Remote, IoList} ->
             file:write(FH, IoList),
+            collect_remote_info(Remote, FH);
+        {collect_data_ack, Remote} ->
+            Remote ! collect_data_goahead,
             collect_remote_info(Remote, FH);
         {collect_done, Remote} ->
             ok
@@ -322,4 +323,29 @@ gmt_util_unmake_monitor(MRef) ->
             ok
     after 0 ->
             ok
+    end.
+
+send(Pid, IoList) ->
+    Pid ! {collect_data, self(), IoList},
+    case incr_counter() rem 10 of
+        0 ->
+            Pid ! {collect_data_ack, self()},
+            receive
+                collect_data_goahead ->
+                    ok
+            after 15*1000 ->
+                    ok
+            end;
+        _ ->
+            ok
+    end.
+
+incr_counter() ->
+    Key = {?MODULE, incr_counter},
+    case erlang:get(Key) of
+        undefined ->
+            erlang:put(Key, 1),
+            0;
+        N ->
+            erlang:put(Key, N+1)
     end.
