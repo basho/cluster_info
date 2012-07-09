@@ -1,6 +1,6 @@
 %%%----------------------------------------------------------------------
 %%% Copyright: (c) 2009-2010 Gemini Mobile Technologies, Inc.  All rights reserved.
-%%% Copyright: (c) 2010 Basho Technologies, Inc.  All rights reserved.
+%%% Copyright: (c) 2010-2012 Basho Technologies, Inc.  All rights reserved.
 %%%
 %%% Licensed under the Apache License, Version 2.0 (the "License");
 %%% you may not use this file except in compliance with the License.
@@ -96,7 +96,11 @@ capture_regs(C) ->
       C, cluster_info:capture_io(1000, fun() -> shell_default:regs() end)).
 
 erlang_memory(C) ->
-    cluster_info:format(C, " ~p\n", [erlang:memory()]).
+    cluster_info:format(C, " Native report:\n\n"),
+    cluster_info:format(C, " ~p\n\n", [erlang:memory()]),
+    cluster_info:format(C, " Report sorted by memory usage:\n\n"),
+    SortFun = fun({_, X}, {_, Y}) -> X > Y end,
+    cluster_info:format(C, " ~p\n", [lists:sort(SortFun, erlang:memory())]).
 
 erlang_statistics(C) ->
     [cluster_info:format(C, " ~p: ~p\n", [Type, catch erlang:statistics(Type)])
