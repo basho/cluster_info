@@ -93,10 +93,9 @@ register_app(CallbackMod) ->
 
 %% @doc Dump the cluster_info on Node to the specified local File.
 -spec dump_node(atom(), filename()) -> dump_return().
-dump_node(Node, Path) when is_atom(Node), is_list(Path) ->
-    io:format("dump_node ~p, file ~p:~p\n", [Node, node(), Path]),
+dump_node(Node, FH) when is_atom(Node) ->
+    io:format("dump_node ~p\n", [Node]),
     Collector = self(),
-    {ok, FH} = file:open(Path, [append]),
     Remote = spawn(Node, fun() ->
                                  dump_local_info(Collector),
                                  collector_done(Collector)
@@ -128,8 +127,19 @@ dump_all_connected(Path) ->
 %% @doc Dump the cluster_info on all specified nodes to the specified
 %%      File.
 -spec dump_nodes([atom()], filename()) -> [dump_return()].
-dump_nodes(Nodes, Path) ->
-    [dump_node(Node, Path) || Node <- lists:sort(Nodes)].
+dump_nodes(Nodes0, Path) ->
+    Nodes = lists:sort(Nodes0),
+    io:format("HTML report is at: ~p:~p\n", [node(), Path]),
+    {ok, FH} = file:open(Path, [append]),
+    io:format(FH, "<h1>Node Reports</h1>\n", []),
+    io:format(FH, "<ul>\n", []),
+    [io:format(FH,"<li> <a href=\"#~p\">~p</a>\n", [Node, Node]) ||
+        Node <- Nodes],
+    io:format(FH, "</ul>\n\n", [])
+
+    Res = [dump_node(Node, FH) || Node <- Nodes],
+    file:close(FH),
+    Res.
 
 send(Pid, IoList) ->
     ReList = [{"&", "\\&amp;"}, {"<", "\\&lt;"}],
@@ -187,15 +197,27 @@ collector_done(Pid) ->
 dump_local_info(CPid) ->
     dbg("D: node = ~p\n", [node()]),
     format(CPid, "\n"),
+    format_noescape(CPid, "<a name=\"~p\">\n", [node()]),
     format_noescape(CPid, "<h1>Local node cluster_info dump, Node: ~p</h1>\n", [node()]),
     format(CPid, "\n"),
-    Mods = lists:sort([Mod || {Mod, _Path} <- code:all_loaded()]),
+    Mods = [cluster_info_basic] ++
+        (lists:sort([Mod || {Mod, _Path} <- code:all_loaded()]) --
+             [cluser_info_basic]),
     [case (catch Mod:cluster_info_generator_funs()) of
          {'EXIT', _} ->
              ok;
          NameFuns when is_list(NameFuns) ->
+             format_noescape(CPid, "<ul>\n", []),
+             [begin
+                  A = make_anchor(node(), Mod, Name),
+                  format_noescape(
+                    CPid, "<li> <a href=\"#~s\">~s</a>\n", [A, Name])
+              end || {Name, _} <- NameFuns],
+             format_noescape(CPid, "<ul>\n", []),
              [try
                   dbg("D: generator ~p ~s\n", [Fun, Name]),
+                  format_noescape(CPid, "\n<a name=\"~s\">\n",
+                                  [make_anchor(node(), Mod, Name)]),
                   format_noescape(CPid, "<h2>Report: ~s (~p)</h2>\n\n",
                                   [Name, node()]),
                   format_noescape(CPid, "<pre>\n", []),
@@ -296,6 +318,13 @@ try_app_envs([{App, Factor}|Apps], Key, Default) ->
     end;
 try_app_envs([], _, Default) ->
     Default.
+
+make_anchor(Node0, Mod, Name) ->
+    NameNoSp = re:replace(Name, " ", "",
+                          [{return, list}, global]),
+    Node = re:replace(atom_to_list(Node0), "'", "", [{return, list}, global]),
+    lists:flatten(io_lib:format("~s~w~s",
+                                [Node, Mod, NameNoSp])).
 
 %% From gmt_util.erl, also Apache Public License'd.
 
