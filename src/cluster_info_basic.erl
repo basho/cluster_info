@@ -192,7 +192,10 @@ non_zero_mailboxes(C) ->
 
 suspicious_links_monitors(C) ->
     Min = 1000,
-    cluster_info:format(" C: Minimum threshold = ~p\n\n", [Min]),
+erlang:put(kk, true),
+catch
+    cluster_info:format(C, " Minimum threshold = ~p\n\n", [Min]),
+erlang:erase(kk),
     [begin
          L = lists:sort([{Num, Pid} ||
                             Pid <- processes(),
