@@ -60,7 +60,11 @@ start() ->
 start(_Type, _StartArgs) ->
     case application:get_env(?MODULE, skip_basic_registration) of
         undefined ->
-            register_app(cluster_info_basic);
+            register_app(cluster_info_basic),
+            register_app(cluster_info_riak_kv),
+            register_app(cluster_info_riak_search),
+            register_app(cluster_info_riak_core),
+            register_app(cluster_info_riak_pipe);
         _ ->
             ok
     end,
