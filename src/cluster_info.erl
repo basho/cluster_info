@@ -1,5 +1,6 @@
 %%%----------------------------------------------------------------------
 %%% Copyright: (c) 2009-2010 Gemini Mobile Technologies, Inc.  All rights reserved.
+%%% Copyright: (c) 2010-2012 Basho Technologies, Inc.  All rights reserved.
 %%%
 %%% Licensed under the Apache License, Version 2.0 (the "License");
 %%% you may not use this file except in compliance with the License.
@@ -31,13 +32,20 @@
 -export([start_phase/3, prep_stop/1, config_change/3]).
 
 -export([register_app/1,
-         dump_node/2, dump_local_node/1, dump_all_connected/1, dump_nodes/2,
-         send/2, format/2, format/3]).
+         dump_node/2, dump_node/3,
+         dump_local_node/1, dump_local_node/2,
+         dump_all_connected/1, dump_all_connected/2,
+         dump_nodes/2, dump_nodes/3,
+         list_reports/0, list_reports/1,
+         send/2,
+         format/2, format/3,
+         format_noescape/2, format_noescape/3]).
 -export([get_limits/0, reset_limits/0]).
 
 %% Really useful but ugly hack.
 -export([capture_io/2]).
 
+-type dump_option() :: {'modules', [atom()]}.
 -type dump_return() :: 'ok' | 'error'.
 -type filename()  :: string().
 
@@ -93,12 +101,18 @@ register_app(CallbackMod) ->
 
 %% @doc Dump the cluster_info on Node to the specified local File.
 -spec dump_node(atom(), filename()) -> dump_return().
-dump_node(Node, Path) when is_atom(Node), is_list(Path) ->
-    io:format("dump_node ~p, file ~p:~p\n", [Node, node(), Path]),
-    Collector = self(),
+
+dump_node(Node, Path) ->
+    dump_node(Node, Path, []).
+
+-spec dump_node(atom(), string(), [dump_option()]) -> dump_return().
+
+dump_node(Node, Path, Opts) when is_atom(Node), is_list(Path) ->
+    io:format("Writing report for node ~p\n", [Node]),
     {ok, FH} = file:open(Path, [append]),
+    Collector = self(),
     Remote = spawn(Node, fun() ->
-                                 dump_local_info(Collector),
+                                 dump_local_info(Collector, Opts),
                                  collector_done(Collector)
                          end),
     {ok, MRef} = gmt_util_make_monitor(Remote),
@@ -117,28 +131,68 @@ dump_node(Node, Path) when is_atom(Node), is_list(Path) ->
 %% @doc Dump the cluster_info on local node to the specified File.
 -spec dump_local_node(filename()) -> [dump_return()].
 dump_local_node(Path) ->
-    dump_nodes([node()], Path).
+    dump_local_node(Path, []).
+
+dump_local_node(Path, Opts) ->
+    dump_nodes([node()], Path, Opts).
 
 %% @doc Dump the cluster_info on all connected nodes to the specified
 %%      File.
 -spec dump_all_connected(filename()) -> [dump_return()].
+
 dump_all_connected(Path) ->
-    dump_nodes([node()|nodes()], Path).
+    dump_all_connected(Path, []).
+
+dump_all_connected(Path, Opts) ->
+    dump_nodes(lists:sort([node()|nodes()]), Path, Opts).
 
 %% @doc Dump the cluster_info on all specified nodes to the specified
 %%      File.
 -spec dump_nodes([atom()], filename()) -> [dump_return()].
 dump_nodes(Nodes, Path) ->
-    [dump_node(Node, Path) || Node <- lists:sort(Nodes)].
+    dump_nodes(Nodes, Path, []).
 
-send(Pid, IoList) ->
-    Pid ! {collect_data, self(), IoList}.
+dump_nodes(Nodes0, Path, Opts) ->
+    Nodes = lists:sort(Nodes0),
+    io:format("HTML report is at: ~p:~p\n", [node(), Path]),
+    {ok, FH} = file:open(Path, [append]),
+    io:format(FH, "<h1>Node Reports</h1>\n", []),
+    io:format(FH, "<ul>\n", []),
+    [io:format(FH,"<li> <a href=\"#~p\">~p</a>\n", [Node, Node]) ||
+        Node <- Nodes],
+    io:format(FH, "</ul>\n\n", []),
+    file:close(FH),
+
+    Res = [dump_node(Node, Path, Opts) || Node <- Nodes],
+    Res.
+
+list_reports() ->
+    list_reports("all modules, please").
+
+list_reports(Mod) ->
+    GetGens = fun (M) -> try
+                             M:cluster_info_generator_funs()
+                         catch _:_ ->
+                                 []
+                         end
+              end,
+    Filter = fun(X) -> not is_atom(Mod) orelse X == Mod end,
+    Mods = [M || {M, _} <- lists:sort(code:all_loaded())],
+    lists:flatten([{M, Name} || M <- Mods,
+                                Filter(M),
+                                {Name, _} <- GetGens(M)]).
 
 format(Pid, Fmt) ->
     format(Pid, Fmt, []).
 
 format(Pid, Fmt, Args) ->
     send(Pid, safe_format(Fmt, Args)).
+
+format_noescape(Pid, Fmt) ->
+    format_noescape(Pid, Fmt, []).
+
+format_noescape(Pid, Fmt, Args) ->
+    send2(Pid, safe_format(Fmt, Args)).
 
 %%----------------------------------------------------------------------
 %% Func: stop/1
@@ -161,6 +215,9 @@ collect_remote_info(Remote, FH) ->
         {collect_data, Remote, IoList} ->
             file:write(FH, IoList),
             collect_remote_info(Remote, FH);
+        {collect_data_ack, Remote} ->
+            Remote ! collect_data_goahead,
+            collect_remote_info(Remote, FH);
         {collect_done, Remote} ->
             ok
     after 120*1000 ->
@@ -170,27 +227,44 @@ collect_remote_info(Remote, FH) ->
 collector_done(Pid) ->
     Pid ! {collect_done, self()}.
 
-dump_local_info(CPid) ->
+dump_local_info(CPid, Opts) ->
     dbg("D: node = ~p\n", [node()]),
     format(CPid, "\n"),
-    format(CPid, "Local node cluster_info dump\n"),
-    format(CPid, "============================\n"),
+    format_noescape(CPid, "<a name=\"~p\">\n", [node()]),
+    format_noescape(CPid, "<h1>Local node cluster_info dump, Node: ~p</h1>\n", [node()]),
+    format(CPid, "   Options: ~p\n", [Opts]),
     format(CPid, "\n"),
-    format(CPid, "== Node: ~p\n", [node()]),
-    format(CPid, "\n"),
-    Mods = lists:sort([Mod || {Mod, _Path} <- code:all_loaded()]),
+    Mods0 = lists:sort([Mod || {Mod, _Path} <- code:all_loaded()]),
+    Filters = proplists:get_value(modules, Opts, [all]),
+    Mods = [M || M <- Mods0,
+                 lists:member(all, Filters) orelse
+                     lists:member(M, Filters)],
+
     [case (catch Mod:cluster_info_generator_funs()) of
          {'EXIT', _} ->
              ok;
          NameFuns when is_list(NameFuns) ->
+             format_noescape(CPid, "<ul>\n", []),
+             [begin
+                  A = make_anchor(node(), Mod, Name),
+                  format_noescape(
+                    CPid, "<li> <a href=\"#~s\">~s</a>\n", [A, Name])
+              end || {Name, _} <- NameFuns],
+             format_noescape(CPid, "<ul>\n", []),
              [try
                   dbg("D: generator ~p ~s\n", [Fun, Name]),
-                  format(CPid, "= Generator name: ~s\n\n", [Name]),
-                  Fun(CPid),
-                  format(CPid, "\n")
+                  format_noescape(CPid, "\n<a name=\"~s\">\n",
+                                  [make_anchor(node(), Mod, Name)]),
+                  format_noescape(CPid, "<h2>Report: ~s (~p)</h2>\n\n",
+                                  [Name, node()]),
+                  format_noescape(CPid, "<pre>\n", []),
+                  Fun(CPid)
               catch X:Y ->
                       format(CPid, "Error in ~p: ~p ~p at ~p\n",
                              [Name, X, Y, erlang:get_stacktrace()])
+              after
+                  format_noescape(CPid, "</pre>\n", []),
+                  format(CPid, "\n")
               end || {Name, Fun} <- NameFuns]
      end || Mod <- Mods],
     ok.
@@ -243,9 +317,6 @@ harvest_reqs(Timeout) ->
     end.
 
 safe_format(Fmt, Args) ->
-    list_to_binary(safe_format2(Fmt, Args)).
-
-safe_format2(Fmt, Args) ->
     case get_limits() of
         {undefined, _} ->
             io_lib:format(Fmt, Args);
@@ -286,6 +357,13 @@ try_app_envs([{App, Factor}|Apps], Key, Default) ->
 try_app_envs([], _, Default) ->
     Default.
 
+make_anchor(Node0, Mod, Name) ->
+    NameNoSp = re:replace(Name, " ", "",
+                          [{return, list}, global]),
+    Node = re:replace(atom_to_list(Node0), "'", "", [{return, list}, global]),
+    lists:flatten(io_lib:format("~s~w~s",
+                                [Node, Mod, NameNoSp])).
+
 %% From gmt_util.erl, also Apache Public License'd.
 
 %% @spec (server_spec()) -> {ok, monitor_ref()} | error
@@ -322,4 +400,37 @@ gmt_util_unmake_monitor(MRef) ->
             ok
     after 0 ->
             ok
+    end.
+
+send(Pid, IoData) ->
+    ReList = [{"&", "\\&amp;"}, {"<", "\\&lt;"}],
+    Str = lists:foldl(fun({RE, Replace}, Str) ->
+                              re:replace(Str, RE, Replace, [{return,binary},
+                                                            global])
+                      end, IoData, ReList),
+    send2(Pid, Str).
+
+send2(Pid, IoData) ->
+    Pid ! {collect_data, self(), IoData},
+    case incr_counter() rem 10 of
+        0 ->
+            Pid ! {collect_data_ack, self()},
+            receive
+                collect_data_goahead ->
+                    ok
+            after 15*1000 ->
+                    ok
+            end;
+        _ ->
+            ok
+    end.
+
+incr_counter() ->
+    Key = {?MODULE, incr_counter},
+    case erlang:get(Key) of
+        undefined ->
+            erlang:put(Key, 1),
+            0;
+        N ->
+            erlang:put(Key, N+1)
     end.

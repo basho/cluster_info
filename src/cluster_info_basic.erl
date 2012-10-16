@@ -1,6 +1,6 @@
 %%%----------------------------------------------------------------------
 %%% Copyright: (c) 2009-2010 Gemini Mobile Technologies, Inc.  All rights reserved.
-%%% Copyright: (c) 2010 Basho Technologies, Inc.  All rights reserved.
+%%% Copyright: (c) 2010-2012 Basho Technologies, Inc.  All rights reserved.
 %%%
 %%% Licensed under the Apache License, Version 2.0 (the "License");
 %%% you may not use this file except in compliance with the License.
@@ -45,6 +45,7 @@ cluster_info_generator_funs() ->
      {"erlang:memory() summary", fun erlang_memory/1},
      {"Top 50 process memory hogs", fun(C) -> memory_hogs(C, 50) end},
      {"Non-zero mailbox sizes", fun non_zero_mailboxes/1},
+     {"Suspicious link and monitor counts", fun suspicious_links_monitors/1},
      {"Registered process names", fun registered_names/1},
      {"Registered process name via regs()", fun capture_regs/1},
      {"Ports", fun port_info/1},
@@ -96,7 +97,11 @@ capture_regs(C) ->
       C, cluster_info:capture_io(1000, fun() -> shell_default:regs() end)).
 
 erlang_memory(C) ->
-    cluster_info:format(C, " ~p\n", [erlang:memory()]).
+    cluster_info:format(C, " Native report:\n\n"),
+    cluster_info:format(C, " ~p\n\n", [erlang:memory()]),
+    cluster_info:format(C, " Report sorted by memory usage:\n\n"),
+    SortFun = fun({_, X}, {_, Y}) -> X > Y end,
+    cluster_info:format(C, " ~p\n", [lists:sort(SortFun, erlang:memory())]).
 
 erlang_statistics(C) ->
     [cluster_info:format(C, " ~p: ~p\n", [Type, catch erlang:statistics(Type)])
@@ -184,6 +189,19 @@ non_zero_mailboxes(C) ->
                            [catch process_info(Pid, message_queue_len)],
                        Size > 0]),
     cluster_info:format(C, " ~p\n", [lists:reverse(L)]).
+
+suspicious_links_monitors(C) ->
+    Min = 1000,
+    cluster_info:format(C, " Minimum threshold = ~p\n\n", [Min]),
+    [begin
+         L = lists:sort([{Num, Pid} ||
+                            Pid <- processes(),
+                            [{_, Mon}] <- [process_info(Pid, [Type])],
+                            Num <- [length(Mon)],
+                            Num >= Min]),
+         cluster_info:format(C, " Type: ~p\n\n", [Type]),
+         cluster_info:format(C, "    ~p\n\n", [L])
+     end || Type <- [links, monitors]].
 
 port_info(C) ->
     L = [{Port, catch erlang:port_info(Port)} || Port <- erlang:ports()],
