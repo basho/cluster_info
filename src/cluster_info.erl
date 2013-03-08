@@ -1,5 +1,6 @@
 %%%----------------------------------------------------------------------
 %%% Copyright: (c) 2009-2010 Gemini Mobile Technologies, Inc.  All rights reserved.
+%%% Copyright: (c) 2010-2012 Basho Technologies, Inc.  All rights reserved.
 %%%
 %%% Licensed under the Apache License, Version 2.0 (the "License");
 %%% you may not use this file except in compliance with the License.
@@ -31,13 +32,15 @@
 -export([start_phase/3, prep_stop/1, config_change/3]).
 
 -export([register_app/1,
-         dump_node/2, dump_local_node/1, dump_all_connected/1, dump_nodes/2,
-         send/2, format/2, format/3]).
+         dump_node/2, dump_node/3,
+         dump_local_node/1, dump_local_node/2,
+         dump_all_connected/1, dump_all_connected/2,
+         dump_nodes/2, dump_nodes/3,
+         list_reports/0, list_reports/1,
+         format/2, format/3]).
 -export([get_limits/0, reset_limits/0]).
 
-%% Really useful but ugly hack.
--export([capture_io/2]).
-
+-type dump_option() :: {'modules', [atom()]}.
 -type dump_return() :: 'ok' | 'error'.
 -type filename()  :: string().
 
@@ -57,7 +60,11 @@ start() ->
 start(_Type, _StartArgs) ->
     case application:get_env(?MODULE, skip_basic_registration) of
         undefined ->
-            register_app(cluster_info_basic);
+            register_app(cluster_info_basic),
+            register_app(cluster_info_riak_kv),
+            register_app(cluster_info_riak_search),
+            register_app(cluster_info_riak_core),
+            register_app(cluster_info_riak_pipe);
         _ ->
             ok
     end,
@@ -93,52 +100,85 @@ register_app(CallbackMod) ->
 
 %% @doc Dump the cluster_info on Node to the specified local File.
 -spec dump_node(atom(), filename()) -> dump_return().
-dump_node(Node, Path) when is_atom(Node), is_list(Path) ->
-    io:format("dump_node ~p, file ~p:~p\n", [Node, node(), Path]),
-    Collector = self(),
+
+dump_node(Node, Path) ->
+    dump_node(Node, Path, []).
+
+-spec dump_node(atom(), string(), [dump_option()]) -> dump_return().
+
+dump_node(Node, Path, Opts) when is_atom(Node), is_list(Path) ->
+    io:format("Writing report for node ~p\n", [Node]),
     {ok, FH} = file:open(Path, [append]),
-    Remote = spawn(Node, fun() ->
-                                 dump_local_info(Collector),
-                                 collector_done(Collector)
-                         end),
-    {ok, MRef} = gmt_util_make_monitor(Remote),
     Res = try
-              ok = collect_remote_info(Remote, FH)
+              collect_remote_info(Node, Opts, FH)
           catch X:Y ->
                   io:format("Error: ~P ~P at ~p\n",
                             [X, 20, Y, 20, erlang:get_stacktrace()]),
                   error
           after
-              catch file:close(FH),
-              gmt_util_unmake_monitor(MRef)
+              catch file:close(FH)
           end,
     Res.
 
 %% @doc Dump the cluster_info on local node to the specified File.
 -spec dump_local_node(filename()) -> [dump_return()].
 dump_local_node(Path) ->
-    dump_nodes([node()], Path).
+    dump_local_node(Path, []).
+
+dump_local_node(Path, Opts) ->
+    dump_nodes([node()], Path, Opts).
 
 %% @doc Dump the cluster_info on all connected nodes to the specified
 %%      File.
 -spec dump_all_connected(filename()) -> [dump_return()].
+
 dump_all_connected(Path) ->
-    dump_nodes([node()|nodes()], Path).
+    dump_all_connected(Path, []).
+
+dump_all_connected(Path, Opts) ->
+    dump_nodes(lists:sort([node()|nodes()]), Path, Opts).
 
 %% @doc Dump the cluster_info on all specified nodes to the specified
 %%      File.
 -spec dump_nodes([atom()], filename()) -> [dump_return()].
 dump_nodes(Nodes, Path) ->
-    [dump_node(Node, Path) || Node <- lists:sort(Nodes)].
+    dump_nodes(Nodes, Path, []).
 
-send(Pid, IoList) ->
-    Pid ! {collect_data, self(), IoList}.
+dump_nodes(Nodes0, Path, Opts) ->
+    Nodes = lists:sort(Nodes0),
+    io:format("HTML report is at: ~p:~p\n", [node(), Path]),
+    {ok, FH} = file:open(Path, [append]),
+    io:format(FH, "<h1>Node Reports</h1>\n", []),
+    io:format(FH, "<ul>\n", []),
+    [io:format(FH,"<li> <a href=\"#~p\">~p</a>\n", [Node, Node]) ||
+        Node <- Nodes],
+    io:format(FH, "</ul>\n\n", []),
+    file:close(FH),
 
-format(Pid, Fmt) ->
-    format(Pid, Fmt, []).
+    Res = [dump_node(Node, Path, Opts) || Node <- Nodes],
+    Res.
 
-format(Pid, Fmt, Args) ->
-    send(Pid, safe_format(Fmt, Args)).
+list_reports() ->
+    list_reports("all modules, please").
+
+list_reports(Mod) ->
+    GetGens = fun (M) -> try
+                             M:cluster_info_generator_funs()
+                         catch _:_ ->
+                                 []
+                         end
+              end,
+    Filter = fun(X) -> not is_atom(Mod) orelse X == Mod end,
+    Mods = [M || {M, _} <- lists:sort(code:all_loaded())],
+    lists:flatten([{M, Name} || M <- Mods,
+                                Filter(M),
+                                {Name, _} <- GetGens(M)]).
+
+format(FH, Fmt) ->
+    format(FH, Fmt, []).
+
+format(FH, Fmt, Args) ->
+    io:format(FH, Fmt, Args).
 
 %%----------------------------------------------------------------------
 %% Func: stop/1
@@ -152,106 +192,56 @@ stop(_State) ->
 %%% Internal functions
 %%%----------------------------------------------------------------------
 
-collect_remote_info(Remote, FH) ->
-    receive
-        {'DOWN', _, X, Remote, Z} ->
-            io:format("Remote error: ~p ~p (~p)\n    -> ~p\n",
-                      [X, Remote, node(Remote), Z]),
-            ok;
-        {collect_data, Remote, IoList} ->
-            file:write(FH, IoList),
-            collect_remote_info(Remote, FH);
-        {collect_done, Remote} ->
-            ok
-    after 120*1000 ->
-            timeout
-    end.
+collect_remote_info(Node, Opts, FH) ->
+    dbg("D: node = ~p\n", [Node]),
+    format(FH, "\n"),
+    format(FH, "<a name=\"~p\">\n", [Node]),
+    format(FH, "<h1>Local node cluster_info dump, Node: ~p</h1>\n", [Node]),
+    format(FH, "   Options: ~p\n", [Opts]),
+    format(FH, "\n"),
+    Mods0 = lists:sort([Mod || {Mod, _Path} <- code:all_loaded()]),
+    Filters = proplists:get_value(modules, Opts, [all]),
+    Mods = [M || M <- Mods0,
+                 lists:member(all, Filters) orelse
+                     lists:member(M, Filters)],
 
-collector_done(Pid) ->
-    Pid ! {collect_done, self()}.
-
-dump_local_info(CPid) ->
-    dbg("D: node = ~p\n", [node()]),
-    format(CPid, "\n"),
-    format(CPid, "Local node cluster_info dump\n"),
-    format(CPid, "============================\n"),
-    format(CPid, "\n"),
-    format(CPid, "== Node: ~p\n", [node()]),
-    format(CPid, "\n"),
-    Mods = lists:sort([Mod || {Mod, _Path} <- code:all_loaded()]),
     [case (catch Mod:cluster_info_generator_funs()) of
          {'EXIT', _} ->
              ok;
          NameFuns when is_list(NameFuns) ->
+             format(FH, "<ul>\n", []),
+             [begin
+                  A = make_anchor(Node, Mod, Name),
+                  format(
+                    FH, "<li> <a href=\"#~s\">~s</a>\n", [A, Name])
+              end || {Name, _} <- NameFuns],
+             format(FH, "<ul>\n", []),
              [try
                   dbg("D: generator ~p ~s\n", [Fun, Name]),
-                  format(CPid, "= Generator name: ~s\n\n", [Name]),
-                  Fun(CPid),
-                  format(CPid, "\n")
+                  format(FH, "\n<a name=\"~s\">\n",
+                                  [make_anchor(Node, Mod, Name)]),
+                  format(FH, "<h2>Report: ~s (~p)</h2>\n\n",
+                                  [Name, Node]),
+                  format(FH, "<pre>\n", []),
+                  RC = fun(M, F, A) ->
+                               rpc:call(Node, M, F, A, 10000)
+                       end,
+                  Fun(FH, RC)
               catch X:Y ->
-                      format(CPid, "Error in ~p: ~p ~p at ~p\n",
+                      format(FH, "Error in ~p: ~p ~p at ~p\n",
                              [Name, X, Y, erlang:get_stacktrace()])
+              after
+                  format(FH, "</pre>\n", []),
+                  format(FH, "\n")
               end || {Name, Fun} <- NameFuns]
      end || Mod <- Mods],
     ok.
 
 dbg(_Fmt, _Args) ->
-    ok.
+   ok.
 
-%%%%%%%%%
-
-%% @doc This is an untidy hack.
-
--spec capture_io(integer(), function()) -> [term()].
-capture_io(Timeout, Fun) ->
-    Me = self(),
-    spawn(fun() -> capture_io2(Timeout, Fun, Me) end),
-    lists:flatten(harvest_reqs(Timeout)).
-
-capture_io2(Timeout, Fun, Parent) ->
-    group_leader(self(), self()),
-    Fudge = 50,
-    Worker = spawn(fun() -> Fun(), timer:sleep(Fudge), Parent ! io_done2 end),
-    spawn(fun() -> timer:sleep(Timeout + Fudge + 10), exit(Worker, kill) end),
-    get_io_reqs(Parent, Timeout).
-
-get_io_reqs(Parent, Timeout) ->
-    receive
-        {io_request, From, _, Req} ->
-            From ! {io_reply, self(), ok},
-            Parent ! {io_data, Req},
-            get_io_reqs(Parent, Timeout)
-    after Timeout ->
-            ok
-    end.
-
-harvest_reqs(Timeout) ->
-    receive
-        {io_data, Req} ->
-            case Req of
-                {put_chars, _, Mod, Fun, Args} ->
-                    [erlang:apply(Mod, Fun, Args)|harvest_reqs(Timeout)];
-                {put_chars, _, Chars} ->
-                    [Chars|harvest_reqs(Timeout)]
-            end;
-        io_done ->
-            [];
-        io_done2 ->
-            []
-    after Timeout ->
-            []
-    end.
-
-safe_format(Fmt, Args) ->
-    list_to_binary(safe_format2(Fmt, Args)).
-
-safe_format2(Fmt, Args) ->
-    case get_limits() of
-        {undefined, _} ->
-            io_lib:format(Fmt, Args);
-        {TermMaxSize, FmtMaxBytes} ->
-            riak_err_handler:limited_fmt(Fmt, Args, TermMaxSize, FmtMaxBytes)
-    end.
+%% dbg(Fmt, Args) ->
+%%     io:format(Fmt, Args).
 
 get_limits() ->
     case erlang:get(?DICT_KEY) of
@@ -286,40 +276,9 @@ try_app_envs([{App, Factor}|Apps], Key, Default) ->
 try_app_envs([], _, Default) ->
     Default.
 
-%% From gmt_util.erl, also Apache Public License'd.
-
-%% @spec (server_spec()) -> {ok, monitor_ref()} | error
-%% @doc Simplify the arcane art of <tt>erlang:monitor/1</tt>:
-%%      create a monitor.
-%%
-%% The arg may be a PID or a {registered_name, node} tuple.
-%% In the case of the tuple, we will use rpc:call/4 to find the
-%% server's actual PID before calling erlang:monitor();
-%% therefore there is a risk of blocking by the RPC call.
-%% To avoid the risk of blocking in this case, use make_monitor/2.
-
-gmt_util_make_monitor(Pid) when is_pid(Pid) ->
-    case catch erlang:monitor(process, Pid) of
-        MRef when is_reference(MRef) ->
-            receive
-                {'DOWN', MRef, _, _, _} ->
-                    error
-            after 0 ->
-                    {ok, MRef}
-            end;
-        _ ->
-            error
-    end.
-
-%% @spec (pid()) -> {ok, monitor_ref()} | error
-%% @doc Simplify the arcane art of <tt>erlang:demonitor/1</tt>:
-%%      destroy a monitor.
-
-gmt_util_unmake_monitor(MRef) ->
-    erlang:demonitor(MRef),
-    receive
-        {'DOWN', MRef, _, _, _} ->
-            ok
-    after 0 ->
-            ok
-    end.
+make_anchor(Node0, Mod, Name) ->
+    NameNoSp = re:replace(Name, " ", "",
+                          [{return, list}, global]),
+    Node = re:replace(atom_to_list(Node0), "'", "", [{return, list}, global]),
+    lists:flatten(io_lib:format("~s~w~s",
+                                [Node, Mod, NameNoSp])).
