@@ -230,7 +230,7 @@ collector_done(Pid) ->
 dump_local_info(CPid, Opts) ->
     dbg("D: node = ~p\n", [node()]),
     format(CPid, "\n"),
-    format_noescape(CPid, "<a name=\"~p\">\n", [node()]),
+    format_noescape(CPid, "<a name=\"~p\"> </a>\n", [node()]),
     format_noescape(CPid, "<h1>Local node cluster_info dump, Node: ~p</h1>\n", [node()]),
     format(CPid, "   Options: ~p\n", [Opts]),
     format(CPid, "\n"),
@@ -248,7 +248,7 @@ dump_local_info(CPid, Opts) ->
              [begin
                   A = make_anchor(node(), Mod, Name),
                   format_noescape(
-                    CPid, "<li> <a href=\"#~s\">~s</a>\n", [A, Name])
+                    CPid, "<li> <a href=\"#~s\">~s</a> </li>\n", [A, Name])
               end || {Name, _} <- NameFuns],
              format_noescape(CPid, "<ul>\n", []),
              [try
@@ -265,7 +265,8 @@ dump_local_info(CPid, Opts) ->
               after
                   format_noescape(CPid, "</pre>\n", []),
                   format(CPid, "\n")
-              end || {Name, Fun} <- NameFuns]
+              end || {Name, Fun} <- NameFuns],
+             format_noescape(CPid, "</ul> </ul>\n", [])
      end || Mod <- Mods],
     ok.
 
