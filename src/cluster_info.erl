@@ -320,22 +320,19 @@ safe_format(Fmt, Args) ->
     case get_limits() of
         {undefined, _} ->
             io_lib:format(Fmt, Args);
-        {TermMaxSize, FmtMaxBytes} ->
-            riak_err_handler:limited_fmt(Fmt, Args, TermMaxSize, FmtMaxBytes)
+        {lager, FmtMaxBytes} ->
+            lager:limited_fmt(Fmt, Args, FmtMaxBytes)
     end.
 
 get_limits() ->
     case erlang:get(?DICT_KEY) of
         undefined ->
-            case code:which(riak_err_handler) of
+            case code:which(lager) of 
                 non_existing ->
                     {undefined, undefined};
                 _ ->
-                    %% Use factor of 4 because riak_err's settings are
-                    %% fairly conservative by default, e.g. 64KB.
-                    Apps = [{riak_err, 4}, {cluster_info, 1}],
-                    Res = {try_app_envs(Apps, term_max_size, default_size()),
-                           try_app_envs(Apps, fmt_max_bytes, default_size())},
+                    Res = {lager, try_app_envs([cluster_info], fmt_max_bytes,
+                            default_size())},
                     erlang:put(?DICT_KEY, Res),
                     Res
             end;
