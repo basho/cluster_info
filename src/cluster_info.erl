@@ -321,17 +321,17 @@ safe_format(Fmt, Args) ->
         {undefined, _} ->
             io_lib:format(Fmt, Args);
         {lager, FmtMaxBytes} ->
-            lager:limited_fmt(Fmt, Args, FmtMaxBytes)
+            lager_format:format(Fmt, Args, FmtMaxBytes,[])
     end.
 
 get_limits() ->
     case erlang:get(?DICT_KEY) of
         undefined ->
-            case code:which(lager) of 
+            case code:which(lager_format) of 
                 non_existing ->
                     {undefined, undefined};
                 _ ->
-                    Res = {lager, try_app_envs([cluster_info], fmt_max_bytes,
+                    Res = {lager, app_helper:get_env(cluster_info, fmt_max_bytes,
                             default_size())},
                     erlang:put(?DICT_KEY, Res),
                     Res
@@ -343,16 +343,6 @@ get_limits() ->
 reset_limits() -> erlang:erase(?DICT_KEY).
 
 default_size() -> 256*1024.
-
-try_app_envs([{App, Factor}|Apps], Key, Default) ->
-    case application:get_env(App, Key) of
-        undefined ->
-            try_app_envs(Apps, Key, Default);
-        {ok, N} ->
-            N * Factor
-    end;
-try_app_envs([], _, Default) ->
-    Default.
 
 make_anchor(Node0, Mod, Name) ->
     NameNoSp = re:replace(Name, " ", "",
