@@ -44,7 +44,7 @@ representation is a list of byte values.  Strings can consume much
 more RAM than if the equivalent data were stored in the Erlang binary
 data type instead.  If a prerequisite OTP application, `lager`, is
 available, then this application can use the
-`lager:limited_fmt/3` function to attempt to limit the
+`lager_format:format/4` function to attempt to limit the
 amount of memory used while generating reports.
 
 To limit the amount of RAM used to format strings in a report, this
@@ -53,7 +53,7 @@ environment variable from the `cluster_info` app's variables:
 
 * `fmt_max_bytes` When formatting a log-related term that might
 be "big", limit the term's formatted output to a maximum of
-`fmt_max_bytes` bytes.  
+`fmt_max_bytes` bytes.
 
 The default value is 256KB.
 
@@ -62,7 +62,7 @@ environment variables:
 
 * Add the following to your packaging's system configuration file
   (which is specified by the `-config /path/to/file` flag to the
-  runtime system ... see the 
+  runtime system ... see the
   [online docs for configuration OTP applications, "7.8  Configuring an Application"](http://www.erlang.org/doc/design_principles/applications.html#id71589)
   for more details:
 
