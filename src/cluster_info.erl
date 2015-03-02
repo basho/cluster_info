@@ -331,8 +331,12 @@ get_limits() ->
                 non_existing ->
                     {undefined, undefined};
                 _ ->
-                    Res = {lager, app_helper:get_env(cluster_info, fmt_max_bytes,
-                            default_size())},
+                    MaxBytes =
+                        case application:get_env(cluster_info, fmt_max_bytes) of
+                            undefined -> default_size();
+                            {ok, Val} -> Val
+                        end,
+                    Res = {lager, MaxBytes},
                     erlang:put(?DICT_KEY, Res),
                     Res
             end;
