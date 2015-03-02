@@ -158,10 +158,10 @@ dump_nodes(Nodes0, Path, Opts) ->
     {ok, FH} = file:open(Path, [append]),
     io:format(FH, "<h1>Node Reports</h1>\n", []),
     io:format(FH, "<ul>\n", []),
-    [io:format(FH,"<li> <a href=\"#~p\">~p</a>\n", [Node, Node]) ||
-        Node <- Nodes],
+    _ = [io:format(FH,"<li> <a href=\"#~p\">~p</a>\n", [Node, Node]) ||
+            Node <- Nodes],
     io:format(FH, "</ul>\n\n", []),
-    file:close(FH),
+    _ = file:close(FH),
 
     Res = [dump_node(Node, Path, Opts) || Node <- Nodes],
     Res.
@@ -213,7 +213,7 @@ collect_remote_info(Remote, FH) ->
                       [X, Remote, node(Remote), Z]),
             ok;
         {collect_data, Remote, IoList} ->
-            file:write(FH, IoList),
+            _ = file:write(FH, IoList),
             collect_remote_info(Remote, FH);
         {collect_data_ack, Remote} ->
             Remote ! collect_data_goahead,
@@ -240,33 +240,33 @@ dump_local_info(CPid, Opts) ->
                  lists:member(all, Filters) orelse
                      lists:member(M, Filters)],
 
-    [case (catch Mod:cluster_info_generator_funs()) of
-         {'EXIT', _} ->
-             ok;
-         NameFuns when is_list(NameFuns) ->
-             format_noescape(CPid, "<ul>\n", []),
-             [begin
-                  A = make_anchor(node(), Mod, Name),
-                  format_noescape(
-                    CPid, "<li> <a href=\"#~s\">~s</a>\n", [A, Name])
-              end || {Name, _} <- NameFuns],
-             format_noescape(CPid, "<ul>\n", []),
-             [try
-                  dbg("D: generator ~p ~s\n", [Fun, Name]),
-                  format_noescape(CPid, "\n<a name=\"~s\">\n",
-                                  [make_anchor(node(), Mod, Name)]),
-                  format_noescape(CPid, "<h2>Report: ~s (~p)</h2>\n\n",
-                                  [Name, node()]),
-                  format_noescape(CPid, "<pre>\n", []),
-                  Fun(CPid)
-              catch X:Y ->
-                      format(CPid, "Error in ~p: ~p ~p at ~p\n",
-                             [Name, X, Y, erlang:get_stacktrace()])
-              after
-                  format_noescape(CPid, "</pre>\n", []),
-                  format(CPid, "\n")
-              end || {Name, Fun} <- NameFuns]
-     end || Mod <- Mods],
+    _ = [case (catch Mod:cluster_info_generator_funs()) of
+             {'EXIT', _} ->
+                 ok;
+             NameFuns when is_list(NameFuns) ->
+                 format_noescape(CPid, "<ul>\n", []),
+                 _ = [begin
+                          A = make_anchor(node(), Mod, Name),
+                          format_noescape(
+                            CPid, "<li> <a href=\"#~s\">~s</a>\n", [A, Name])
+                      end || {Name, _} <- NameFuns],
+                 format_noescape(CPid, "<ul>\n", []),
+                 [try
+                      dbg("D: generator ~p ~s\n", [Fun, Name]),
+                      format_noescape(CPid, "\n<a name=\"~s\">\n",
+                                      [make_anchor(node(), Mod, Name)]),
+                      format_noescape(CPid, "<h2>Report: ~s (~p)</h2>\n\n",
+                                      [Name, node()]),
+                      format_noescape(CPid, "<pre>\n", []),
+                      Fun(CPid)
+                  catch X:Y ->
+                          format(CPid, "Error in ~p: ~p ~p at ~p\n",
+                                 [Name, X, Y, erlang:get_stacktrace()])
+                  after
+                      format_noescape(CPid, "</pre>\n", []),
+                      format(CPid, "\n")
+                  end || {Name, Fun} <- NameFuns]
+         end || Mod <- Mods],
     ok.
 
 dbg(_Fmt, _Args) ->
