@@ -1,10 +1,4 @@
-*.app
-*.beam
-*.boot
-*.huc
-*.log
-*.script
-.ebin/
+ebin/
 .eunit/
 erl_crash.dump
 dialyzer_unhandled_warnings
