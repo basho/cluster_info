@@ -320,28 +320,51 @@ safe_format(Fmt, Args) ->
     case get_limits() of
         {undefined, _} ->
             io_lib:format(Fmt, Args);
-        {lager, FmtMaxBytes} ->
-            lager_format:format(Fmt, Args, FmtMaxBytes,[])
+        {TermMaxSize, FmtMaxBytes} ->
+            limited_fmt(Fmt, Args, TermMaxSize, FmtMaxBytes)
     end.
 
 get_limits() ->
     case erlang:get(?DICT_KEY) of
         undefined ->
-            case code:which(lager_format) of 
+            case code:which(lager_trunc_io) of 
                 non_existing ->
                     {undefined, undefined};
                 _ ->
-                    MaxBytes =
-                        case application:get_env(cluster_info, fmt_max_bytes) of
-                            undefined -> default_size();
-                            {ok, Val} -> Val
-                        end,
-                    Res = {lager, MaxBytes},
+                    Res = {get_env(cluster_info, term_max_size, default_size()),
+                           get_env(cluster_info, fmt_max_bytes, default_size())},
                     erlang:put(?DICT_KEY, Res),
                     Res
             end;
         T when is_tuple(T) ->
             T
+    end.
+
+get_env(App, Key, Default) ->
+    case application:get_env(App, Key) of
+        undefined -> Default;
+        {ok, Val} -> Val
+    end.
+
+%% @doc Format Fmt and Args similar to what io_lib:format/2 does but with 
+%%      limits on how large the formatted string may be.
+%%
+%% If the Args list's size is larger than TermMaxSize, then the
+%% formatting is done by trunc_io:print/2, where FmtMaxBytes is used
+%% to limit the formatted string's size.
+-spec limited_fmt(string(), list(), integer(), integer()) -> iolist().
+limited_fmt(Fmt, Args, TermMaxSize, FmtMaxBytes) ->
+    TermSize = erts_debug:flat_size(Args),
+    if TermSize > TermMaxSize ->
+            ["Oversize args for format \"", Fmt, "\": \n",
+             [
+              begin
+                  {Str, _} = lager_trunc_io:print(lists:nth(N, Args), FmtMaxBytes),
+                  ["  arg", integer_to_list(N), ": ", Str, "\n"]
+              end || N <- lists:seq(1, length(Args))
+             ]];
+       true ->
+            io_lib:format(Fmt, Args)
     end.
 
 reset_limits() -> erlang:erase(?DICT_KEY).
