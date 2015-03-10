@@ -230,7 +230,7 @@ collector_done(Pid) ->
 dump_local_info(CPid, Opts) ->
     dbg("D: node = ~p\n", [node()]),
     format(CPid, "\n"),
-    format_noescape(CPid, "<a name=\"~p\">\n", [node()]),
+    format_noescape(CPid, "<a name=\"~p\"> </a>\n", [node()]),
     format_noescape(CPid, "<h1>Local node cluster_info dump, Node: ~p</h1>\n", [node()]),
     format(CPid, "   Options: ~p\n", [Opts]),
     format(CPid, "\n"),
@@ -248,24 +248,25 @@ dump_local_info(CPid, Opts) ->
                  _ = [begin
                           A = make_anchor(node(), Mod, Name),
                           format_noescape(
-                            CPid, "<li> <a href=\"#~s\">~s</a>\n", [A, Name])
+                            CPid, "<li> <a href=\"#~s\">~s</a> </li>\n", [A, Name])
                       end || {Name, _} <- NameFuns],
                  format_noescape(CPid, "<ul>\n", []),
-                 [try
-                      dbg("D: generator ~p ~s\n", [Fun, Name]),
-                      format_noescape(CPid, "\n<a name=\"~s\">\n",
-                                      [make_anchor(node(), Mod, Name)]),
-                      format_noescape(CPid, "<h2>Report: ~s (~p)</h2>\n\n",
-                                      [Name, node()]),
-                      format_noescape(CPid, "<pre>\n", []),
-                      Fun(CPid)
-                  catch X:Y ->
-                          format(CPid, "Error in ~p: ~p ~p at ~p\n",
-                                 [Name, X, Y, erlang:get_stacktrace()])
-                  after
-                      format_noescape(CPid, "</pre>\n", []),
-                      format(CPid, "\n")
-                  end || {Name, Fun} <- NameFuns]
+                 _ = [try
+                          dbg("D: generator ~p ~s\n", [Fun, Name]),
+                          format_noescape(CPid, "\n<a name=\"~s\">\n",
+                                          [make_anchor(node(), Mod, Name)]),
+                          format_noescape(CPid, "<h2>Report: ~s (~p)</h2>\n\n",
+                                          [Name, node()]),
+                          format_noescape(CPid, "<pre>\n", []),
+                          Fun(CPid)
+                      catch X:Y ->
+                              format(CPid, "Error in ~p: ~p ~p at ~p\n",
+                                     [Name, X, Y, erlang:get_stacktrace()])
+                      after
+                          format_noescape(CPid, "</pre>\n", []),
+                          format(CPid, "\n")
+                      end || {Name, Fun} <- NameFuns],
+                 format_noescape(CPid, "</ul> </ul>\n", [])
          end || Mod <- Mods],
     ok.
 
