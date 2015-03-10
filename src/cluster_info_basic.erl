@@ -70,7 +70,7 @@ alarm_info(C) ->
 
 application_info(C) ->
     cluster_info:format(C, " Application summary:\n"),
-    cluster_info:format(C, " ~p\n", [application:info()]),
+    cluster_info:format(C, " ~p\n\n", [application:info()]),
     [try
          cluster_info:format(C, " Application:get_all_key(~p):\n", [App]),
          cluster_info:format(C, " ~p\n\n", [application:get_all_key(App)]),
@@ -128,23 +128,23 @@ erlang_system_info(C) ->
               smp_support, system_version, system_architecture,
               threads, thread_pool_size, trace_control_word,
               version, wordsize]),
-    [cluster_info:format(C, " ~p:\n ~p\n\n", [I,catch erlang:system_info(I)]) ||
-        I <- I0],
+    _ = [cluster_info:format(C, " ~p:\n ~p\n\n", [I,catch erlang:system_info(I)]) ||
+            I <- I0],
 
     I1 = [dist, info, loaded, procs],
-    [cluster_info:format(C, " ~p:\n ~s\n\n", [I, catch erlang:system_info(I)]) ||
-        I <- I1].
+    _ = [cluster_info:format(C, " ~p:\n ~s\n\n", [I, catch erlang:system_info(I)]) ||
+            I <- I1].
 
 global_summary(C) ->
-    cluster_info:format(C, " info: ~p\n", [global:info()]),
+    cluster_info:format(C, " info: ~p\n\n", [global:info()]),
     cluster_info:format(C, " registered_names:\n"),
-    [try
-         Pid = global:whereis_name(Name),
-         cluster_info:format(C, "    Name ~p, pid ~p, node ~p\n",
-                             [Name, Pid, node(Pid)])
-     catch _:_ ->
-             ok
-     end || Name <- global:registered_names()],
+    _ = [try
+             Pid = global:whereis_name(Name),
+             cluster_info:format(C, "    Name ~p, pid ~p, node ~p\n",
+                                 [Name, Pid, node(Pid)])
+         catch _:_ ->
+                 ok
+         end || Name <- global:registered_names()],
     ok.
 
 inet_db_summary(C) ->
@@ -200,7 +200,7 @@ suspicious_links_monitors(C) ->
                             Num <- [length(Mon)],
                             Num >= Min]),
          cluster_info:format(C, " Type: ~p\n\n", [Type]),
-         cluster_info:format(C, "    ~p\n\n", [L])
+         cluster_info:format(C, "    ~p\n\n", [lists:reverse(L)])
      end || Type <- [links, monitors]].
 
 port_info(C) ->

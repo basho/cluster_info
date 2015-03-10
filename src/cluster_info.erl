@@ -158,10 +158,10 @@ dump_nodes(Nodes0, Path, Opts) ->
     {ok, FH} = file:open(Path, [append]),
     io:format(FH, "<h1>Node Reports</h1>\n", []),
     io:format(FH, "<ul>\n", []),
-    [io:format(FH,"<li> <a href=\"#~p\">~p</a>\n", [Node, Node]) ||
-        Node <- Nodes],
+    _ = [io:format(FH,"<li> <a href=\"#~p\">~p</a>\n", [Node, Node]) ||
+            Node <- Nodes],
     io:format(FH, "</ul>\n\n", []),
-    file:close(FH),
+    _ = file:close(FH),
 
     Res = [dump_node(Node, Path, Opts) || Node <- Nodes],
     Res.
@@ -213,7 +213,7 @@ collect_remote_info(Remote, FH) ->
                       [X, Remote, node(Remote), Z]),
             ok;
         {collect_data, Remote, IoList} ->
-            file:write(FH, IoList),
+            _ = file:write(FH, IoList),
             collect_remote_info(Remote, FH);
         {collect_data_ack, Remote} ->
             Remote ! collect_data_goahead,
@@ -230,7 +230,7 @@ collector_done(Pid) ->
 dump_local_info(CPid, Opts) ->
     dbg("D: node = ~p\n", [node()]),
     format(CPid, "\n"),
-    format_noescape(CPid, "<a name=\"~p\">\n", [node()]),
+    format_noescape(CPid, "<a name=\"~p\"> </a>\n", [node()]),
     format_noescape(CPid, "<h1>Local node cluster_info dump, Node: ~p</h1>\n", [node()]),
     format(CPid, "   Options: ~p\n", [Opts]),
     format(CPid, "\n"),
@@ -240,33 +240,34 @@ dump_local_info(CPid, Opts) ->
                  lists:member(all, Filters) orelse
                      lists:member(M, Filters)],
 
-    [case (catch Mod:cluster_info_generator_funs()) of
-         {'EXIT', _} ->
-             ok;
-         NameFuns when is_list(NameFuns) ->
-             format_noescape(CPid, "<ul>\n", []),
-             [begin
-                  A = make_anchor(node(), Mod, Name),
-                  format_noescape(
-                    CPid, "<li> <a href=\"#~s\">~s</a>\n", [A, Name])
-              end || {Name, _} <- NameFuns],
-             format_noescape(CPid, "<ul>\n", []),
-             [try
-                  dbg("D: generator ~p ~s\n", [Fun, Name]),
-                  format_noescape(CPid, "\n<a name=\"~s\">\n",
-                                  [make_anchor(node(), Mod, Name)]),
-                  format_noescape(CPid, "<h2>Report: ~s (~p)</h2>\n\n",
-                                  [Name, node()]),
-                  format_noescape(CPid, "<pre>\n", []),
-                  Fun(CPid)
-              catch X:Y ->
-                      format(CPid, "Error in ~p: ~p ~p at ~p\n",
-                             [Name, X, Y, erlang:get_stacktrace()])
-              after
-                  format_noescape(CPid, "</pre>\n", []),
-                  format(CPid, "\n")
-              end || {Name, Fun} <- NameFuns]
-     end || Mod <- Mods],
+    _ = [case (catch Mod:cluster_info_generator_funs()) of
+             {'EXIT', _} ->
+                 ok;
+             NameFuns when is_list(NameFuns) ->
+                 format_noescape(CPid, "<ul>\n", []),
+                 _ = [begin
+                          A = make_anchor(node(), Mod, Name),
+                          format_noescape(
+                            CPid, "<li> <a href=\"#~s\">~s</a> </li>\n", [A, Name])
+                      end || {Name, _} <- NameFuns],
+                 format_noescape(CPid, "<ul>\n", []),
+                 _ = [try
+                          dbg("D: generator ~p ~s\n", [Fun, Name]),
+                          format_noescape(CPid, "\n<a name=\"~s\">\n",
+                                          [make_anchor(node(), Mod, Name)]),
+                          format_noescape(CPid, "<h2>Report: ~s (~p)</h2>\n\n",
+                                          [Name, node()]),
+                          format_noescape(CPid, "<pre>\n", []),
+                          Fun(CPid)
+                      catch X:Y ->
+                              format(CPid, "Error in ~p: ~p ~p at ~p\n",
+                                     [Name, X, Y, erlang:get_stacktrace()])
+                      after
+                          format_noescape(CPid, "</pre>\n", []),
+                          format(CPid, "\n")
+                      end || {Name, Fun} <- NameFuns],
+                 format_noescape(CPid, "</ul> </ul>\n", [])
+         end || Mod <- Mods],
     ok.
 
 dbg(_Fmt, _Args) ->
@@ -320,28 +321,51 @@ safe_format(Fmt, Args) ->
     case get_limits() of
         {undefined, _} ->
             io_lib:format(Fmt, Args);
-        {lager, FmtMaxBytes} ->
-            lager_format:format(Fmt, Args, FmtMaxBytes,[])
+        {TermMaxSize, FmtMaxBytes} ->
+            limited_fmt(Fmt, Args, TermMaxSize, FmtMaxBytes)
     end.
 
 get_limits() ->
     case erlang:get(?DICT_KEY) of
         undefined ->
-            case code:which(lager_format) of 
+            case code:which(lager_trunc_io) of 
                 non_existing ->
                     {undefined, undefined};
                 _ ->
-                    MaxBytes =
-                        case application:get_env(cluster_info, fmt_max_bytes) of
-                            undefined -> default_size();
-                            {ok, Val} -> Val
-                        end,
-                    Res = {lager, MaxBytes},
+                    Res = {get_env(cluster_info, term_max_size, default_size()),
+                           get_env(cluster_info, fmt_max_bytes, default_size())},
                     erlang:put(?DICT_KEY, Res),
                     Res
             end;
         T when is_tuple(T) ->
             T
+    end.
+
+get_env(App, Key, Default) ->
+    case application:get_env(App, Key) of
+        undefined -> Default;
+        {ok, Val} -> Val
+    end.
+
+%% @doc Format Fmt and Args similar to what io_lib:format/2 does but with 
+%%      limits on how large the formatted string may be.
+%%
+%% If the Args list's size is larger than TermMaxSize, then the
+%% formatting is done by trunc_io:print/2, where FmtMaxBytes is used
+%% to limit the formatted string's size.
+-spec limited_fmt(string(), list(), integer(), integer()) -> iolist().
+limited_fmt(Fmt, Args, TermMaxSize, FmtMaxBytes) ->
+    TermSize = erts_debug:flat_size(Args),
+    if TermSize > TermMaxSize ->
+            ["Oversize args for format \"", Fmt, "\": \n",
+             [
+              begin
+                  {Str, _} = lager_trunc_io:print(lists:nth(N, Args), FmtMaxBytes),
+                  ["  arg", integer_to_list(N), ": ", Str, "\n"]
+              end || N <- lists:seq(1, length(Args))
+             ]];
+       true ->
+            io_lib:format(Fmt, Args)
     end.
 
 reset_limits() -> erlang:erase(?DICT_KEY).
