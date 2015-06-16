@@ -217,7 +217,12 @@ time_and_date(C) ->
     cluster_info:format(C, " Current now : ~p\n", [now()]).
 
 timer_status(C) ->
-    cluster_info:format(C, " ~p\n", [timer:get_status()]).
+    case catch timer:get_status() of
+        {'EXIT', _} ->
+            cluster_info:format(C, " timer_server is not started");
+        Status ->
+            cluster_info:format(C, " ~p\n", [Status])
+    end.
 
 gmt_util_get_alarms() ->
     alarm_handler:get_alarms().
