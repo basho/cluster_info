@@ -156,6 +156,7 @@ dump_nodes(Nodes0, Path, Opts) ->
     Nodes = lists:sort(Nodes0),
     io:format("HTML report is at: ~p:~p\n", [node(), Path]),
     {ok, FH} = file:open(Path, [append]),
+    io:format(FH, "<!DOCTYPE html>~n<html>~n<head><meta charset=\"UTF-8\"><title>Cluster Info</title></head>~n<body>", []),
     io:format(FH, "<h1>Node Reports</h1>\n", []),
     io:format(FH, "<ul>\n", []),
     _ = [io:format(FH,"<li> <a href=\"#~p\">~p</a>\n", [Node, Node]) ||
@@ -164,7 +165,9 @@ dump_nodes(Nodes0, Path, Opts) ->
     _ = file:close(FH),
 
     Res = [dump_node(Node, Path, Opts) || Node <- Nodes],
-    Res.
+    {ok, FH2} = file:open(Path, [append]),
+    io:format(FH2, "~n</body>~n</html>~n", []),
+    _ = file:close(FH),    Res.
 
 list_reports() ->
     list_reports("all modules, please").
@@ -230,7 +233,7 @@ collector_done(Pid) ->
 dump_local_info(CPid, Opts) ->
     dbg("D: node = ~p\n", [node()]),
     format(CPid, "\n"),
-    format_noescape(CPid, "<a name=\"~p\"> </a>\n", [node()]),
+    format_noescape(CPid, "<a id=\"~p\"> </a>\n", [node()]),
     format_noescape(CPid, "<h1>Local node cluster_info dump, Node: ~p</h1>\n", [node()]),
     format(CPid, "   Options: ~p\n", [Opts]),
     format(CPid, "\n"),
@@ -248,12 +251,12 @@ dump_local_info(CPid, Opts) ->
                  _ = [begin
                           A = make_anchor(node(), Mod, Name),
                           format_noescape(
-                            CPid, "<li> <a href=\"#~s\">~s</a> </li>\n", [A, Name])
+                            CPid, "<li><a href=\"#~s\">~s</a></li>\n", [A, Name])
                       end || {Name, _} <- NameFuns],
-                 format_noescape(CPid, "<ul>\n", []),
+                 format_noescape(CPid, "</ul><blockquote>", []),
                  _ = [try
                           dbg("D: generator ~p ~s\n", [Fun, Name]),
-                          format_noescape(CPid, "\n<a name=\"~s\">\n",
+                          format_noescape(CPid, "\n<a id=\"~s\"></a>\n",
                                           [make_anchor(node(), Mod, Name)]),
                           format_noescape(CPid, "<h2>Report: ~s (~p)</h2>\n\n",
                                           [Name, node()]),
@@ -264,9 +267,9 @@ dump_local_info(CPid, Opts) ->
                                      [Name, X, Y, erlang:get_stacktrace()])
                       after
                           format_noescape(CPid, "</pre>\n", []),
-                          format(CPid, "\n")
+                          format_noescape(CPid, "\n",[])
                       end || {Name, Fun} <- NameFuns],
-                 format_noescape(CPid, "</ul> </ul>\n", [])
+                 format_noescape(CPid, "</blockquote>\n", [])
          end || Mod <- Mods],
     ok.
 
