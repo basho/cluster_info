@@ -24,7 +24,7 @@
   {description, "Cluster info/postmortem app"},
   {vsn, git},
   {registered, []},
-  {applications, [kernel, stdlib, sasl]},
+  {applications, [kernel, stdlib, sasl, lager]},
   {mod, {cluster_info, []}},
   {modules, [cluster_info
             , cluster_info_ex
