@@ -295,8 +295,8 @@ capture_io2(Timeout, Fun, Parent) ->
 
 get_io_reqs(Parent, Timeout) ->
     receive
-        {io_request, From, _, Req} ->
-            From ! {io_reply, self(), ok},
+        {io_request, From, ReplyAs, Req} ->
+            From ! {io_reply, ReplyAs, ok},
             Parent ! {io_data, Req},
             get_io_reqs(Parent, Timeout)
     after Timeout ->
