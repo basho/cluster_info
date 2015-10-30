@@ -211,25 +211,34 @@ registered_names(C) ->
     L = lists:sort([{Name, catch whereis(Name)} || Name <- registered()]),
     cluster_info:format(C, " ~p\n", [L]).
 
--ifdef(new_time).
-
 time_and_date(C) ->
-    cluster_info:format(C, " Current date     : ~p\n", [date()]),
-    cluster_info:format(C, " Current time     : ~p\n", [time()]),
-    cluster_info:format(C, " Current timestamp: ~p\n\n", [erlang:timestamp()]),
-    cluster_info:format(C, " erlang:system_info(os_system_time_source):\n ~p\n\n",
-                        [erlang:system_info(os_system_time_source)]),
-    cluster_info:format(C, " erlang:system_info(os_monotonic_time_source):\n ~p\n",
-                        [erlang:system_info(os_monotonic_time_source)]).
+    case exists_new_time_api() of
+        true ->
+            cluster_info:format(C, " Current date     : ~p\n", [date()]),
+            cluster_info:format(C, " Current time     : ~p\n", [time()]),
+            cluster_info:format(C, " Current timestamp: ~p\n\n", [apply_without_warnings(erlang, timestamp, [])]),
+            cluster_info:format(C, " erlang:system_info(os_system_time_source):\n ~p\n\n",
+                                [erlang:system_info(os_system_time_source)]),
+            cluster_info:format(C, " erlang:system_info(os_monotonic_time_source):\n ~p\n",
+                                [erlang:system_info(os_monotonic_time_source)]);
+        false ->
+            cluster_info:format(C, " Current date: ~p\n", [date()]),
+            cluster_info:format(C, " Current time: ~p\n", [time()]),
+            cluster_info:format(C, " Current now : ~p\n", [apply_without_warnings(erlang, now, [])])
+    end.
 
--else.
+exists_new_time_api() ->
+    try erlang:system_info(os_monotonic_time_source) of
+        _ ->
+            true
+    catch
+        error:badarg ->
+            false
+    end.
 
-time_and_date(C) ->
-    cluster_info:format(C, " Current date: ~p\n", [date()]),
-    cluster_info:format(C, " Current time: ~p\n", [time()]),
-    cluster_info:format(C, " Current now : ~p\n", [now()]).
-
--endif.
+% to ignore xref warnings
+apply_without_warnings(M, F, A) ->
+    apply(M, F, A).
 
 timer_status(C) ->
     case catch timer:get_status() of
