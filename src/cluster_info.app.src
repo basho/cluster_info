@@ -26,8 +26,6 @@
   {registered, []},
   {applications, [kernel, stdlib, sasl]},
   {mod, {cluster_info, []}},
-  {modules, [cluster_info
-            , cluster_info_ex
-            ]}
+  {modules, []}
  ]
 }.

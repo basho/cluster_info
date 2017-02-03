@@ -1,19 +1,23 @@
-%%%----------------------------------------------------------------------
-%%% Copyright: (c) 2009-2010 Gemini Mobile Technologies, Inc.  All rights reserved.
-%%% Copyright: (c) 2010-2012 Basho Technologies, Inc.  All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%----------------------------------------------------------------------
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2010-2017 Basho Technologies, Inc.
+%% Copyright (c) 2009-2010 Gemini Mobile Technologies, Inc.  All rights reserved.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 
 -module(cluster_info_basic).
 
@@ -31,6 +35,10 @@
          loaded_modules/1, memory_hogs/2, non_zero_mailboxes/1, port_info/1,
          registered_names/1, time_and_date/1, timer_status/1]).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 register() ->
     cluster_info:register_app(?MODULE).
 
@@ -40,7 +48,7 @@ cluster_info_init() ->
 cluster_info_generator_funs() ->
     [
      %% Short(er) output items at the top
-     {"Current time and date", fun time_and_date/1},
+     {"Current time and date", time_and_date_fun()},
      {"VM statistics", fun erlang_statistics/1},
      {"erlang:memory() summary", fun erlang_memory/1},
      {"Top 50 process memory hogs", fun(C) -> memory_hogs(C, 50) end},
@@ -212,33 +220,38 @@ registered_names(C) ->
     cluster_info:format(C, " ~p\n", [L]).
 
 time_and_date(C) ->
-    case exists_new_time_api() of
+    case erlang:is_builtin(erlang, monotonic_time, 0) of
         true ->
-            cluster_info:format(C, " Current date     : ~p\n", [date()]),
-            cluster_info:format(C, " Current time     : ~p\n", [time()]),
-            cluster_info:format(C, " Current timestamp: ~p\n\n", [apply_without_warnings(erlang, timestamp, [])]),
-            cluster_info:format(C, " erlang:system_info(os_system_time_source):\n ~p\n\n",
-                                [erlang:system_info(os_system_time_source)]),
-            cluster_info:format(C, " erlang:system_info(os_monotonic_time_source):\n ~p\n",
-                                [erlang:system_info(os_monotonic_time_source)]);
-        false ->
-            cluster_info:format(C, " Current date: ~p\n", [date()]),
-            cluster_info:format(C, " Current time: ~p\n", [time()]),
-            cluster_info:format(C, " Current now : ~p\n", [apply_without_warnings(erlang, now, [])])
-    end.
-
-exists_new_time_api() ->
-    try erlang:system_info(os_monotonic_time_source) of
+            time_and_date_new(C);
         _ ->
-            true
-    catch
-        error:badarg ->
-            false
+            time_and_date_old(C)
     end.
 
-% to ignore xref warnings
-apply_without_warnings(M, F, A) ->
-    apply(M, F, A).
+time_and_date_fun() ->
+    case erlang:is_builtin(erlang, monotonic_time, 0) of
+        true ->
+            fun time_and_date_new/1;
+        _ ->
+            fun time_and_date_old/1
+    end.
+
+time_and_date_old(C) ->
+    cluster_info:format(C, " Current date: ~p\n", [erlang:date()]),
+    cluster_info:format(C, " Current time: ~p\n", [erlang:time()]),
+    cluster_info:format(C, " Current now : ~p\n", [os:timestamp()]).
+
+time_and_date_new(C) ->
+    cluster_info:format(C, " Current date     : ~p\n", [erlang:date()]),
+    cluster_info:format(C, " Current time     : ~p\n", [erlang:time()]),
+    cluster_info:format(C, " Current timestamp: ~p\n\n", [apply0(erlang, timestamp)]),
+    cluster_info:format(C, " erlang:system_info(os_system_time_source):\n ~p\n\n",
+        [erlang:system_info(os_system_time_source)]),
+    cluster_info:format(C, " erlang:system_info(os_monotonic_time_source):\n ~p\n",
+        [erlang:system_info(os_monotonic_time_source)]).
+
+-compile({inline, apply0/2}).
+apply0(Mod, Func) ->
+    Mod:Func().
 
 timer_status(C) ->
     case catch timer:get_status() of
@@ -251,3 +264,45 @@ timer_status(C) ->
 gmt_util_get_alarms() ->
     alarm_handler:get_alarms().
 
+-ifdef(TEST).
+
+time_and_date_test_() ->
+    {timeout, 30, fun() ->
+        This = erlang:self(),
+        {Pid, Mon} = erlang:spawn_monitor(fun() -> time_and_date(This) end),
+        Res = receive_time_and_date(Pid, Mon, []),
+        ?assertMatch([_|_], Res),
+        Len = case otp_version() of
+            Vsn when Vsn >= 18 ->
+                5;
+            _ ->
+                3
+        end,
+        ?assertEqual(Len, erlang:length(Res))
+    end}.
+
+receive_time_and_date(Pid, Mon, Acc) ->
+    receive
+        {collect_data, Pid, IoData} ->
+            receive_time_and_date(Pid, Mon, [IoData | Acc]);
+        {collect_data_ack, Pid} ->
+            Pid ! collect_data_goahead,
+            receive_time_and_date(Pid, Mon, Acc);
+        {'DOWN', Mon, _, Pid, _} ->
+            Acc
+    after
+        2000 ->
+            {error, {timeout, Acc}}
+    end.
+
+otp_version() ->
+    {Vsn, _} = string:to_integer(
+        case erlang:system_info(otp_release) of
+            [$R | Rel] ->
+                Rel;
+            Rel ->
+                Rel
+        end),
+    Vsn.
+
+-endif. % TEST

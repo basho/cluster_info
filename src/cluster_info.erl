@@ -1,28 +1,27 @@
-%%%----------------------------------------------------------------------
-%%% Copyright: (c) 2009-2010 Gemini Mobile Technologies, Inc.  All rights reserved.
-%%% Copyright: (c) 2010-2012 Basho Technologies, Inc.  All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%
-%%% File     : cluster_info.erl
-%%% Purpose  : Cluster info/postmortem data gathering app
-%%%----------------------------------------------------------------------
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2010-2017 Basho Technologies, Inc.
+%% Copyright (c) 2009-2010 Gemini Mobile Technologies, Inc.  All rights reserved.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 
 -module(cluster_info).
 
 -behaviour(application).
-
--define(DICT_KEY, '^_^--cluster_info').
 
 %% application callbacks
 %% Note: It is *not* necessary to start this application as a real/true OTP
@@ -47,7 +46,15 @@
 
 -type dump_option() :: {'modules', [atom()]}.
 -type dump_return() :: 'ok' | 'error'.
--type filename()  :: string().
+-type filename()    :: string().
+
+-type lnlimit()     :: undefined | pos_integer().
+-type lnlimits()    :: {lnlimit(), lnlimit()}.
+-type limitfmtfun() :: fun((iolist(), list()) -> iolist()).
+-type limitrec()    :: {lnlimits(), limitfmtfun()}.
+
+%% Internal use only, maps to limitrec().
+-define(DICT_KEY, '^_^--cluster_info').
 
 %%%----------------------------------------------------------------------
 %%% Callback functions from application
@@ -112,21 +119,20 @@ dump_node(Node, Path, Opts) when is_atom(Node), is_list(Path) ->
     {ok, FH} = file:open(Path, [append]),
     Collector = self(),
     Remote = spawn(Node, fun() ->
-                                 dump_local_info(Collector, Opts),
-                                 collector_done(Collector)
-                         end),
-    {ok, MRef} = gmt_util_make_monitor(Remote),
-    Res = try
-              ok = collect_remote_info(Remote, FH)
-          catch X:Y ->
-                  io:format("Error: ~P ~P at ~p\n",
-                            [X, 20, Y, 20, erlang:get_stacktrace()]),
-                  error
-          after
-              catch file:close(FH),
-              gmt_util_unmake_monitor(MRef)
-          end,
-    Res.
+        dump_local_info(Collector, Opts),
+        collector_done(Collector)
+    end),
+    MRef = monitor(process, Remote),
+    try
+        ok = collect_remote_info(Remote, FH)
+    catch X:Y ->
+        io:format("Error: ~P ~P at ~p\n",
+            [X, 20, Y, 20, erlang:get_stacktrace()]),
+        error
+    after
+        demonitor(MRef, [flush]),
+        catch file:close(FH)
+    end.
 
 %% @doc Dump the cluster_info on local node to the specified File.
 -spec dump_local_node(filename()) -> [dump_return()].
@@ -156,18 +162,22 @@ dump_nodes(Nodes0, Path, Opts) ->
     Nodes = lists:sort(Nodes0),
     io:format("HTML report is at: ~p:~p\n", [node(), Path]),
     {ok, FH} = file:open(Path, [append]),
-    io:format(FH, "<!DOCTYPE html>~n<html>~n<head><meta charset=\"UTF-8\"><title>Cluster Info</title></head>~n<body>", []),
+    io:format(FH,
+        "<!DOCTYPE html>~n<html>~n<head><meta charset=\"UTF-8\">"
+        "<title>Cluster Info</title></head>~n<body>", []),
     io:format(FH, "<h1>Node Reports</h1>\n", []),
     io:format(FH, "<ul>\n", []),
-    _ = [io:format(FH,"<li> <a href=\"#~p\">~p</a>\n", [Node, Node]) ||
-            Node <- Nodes],
+    lists:foreach(fun(Node) ->
+        io:format(FH,"<li> <a href=\"#~p\">~p</a>\n", [Node, Node])
+    end, Nodes),
     io:format(FH, "</ul>\n\n", []),
     _ = file:close(FH),
 
     Res = [dump_node(Node, Path, Opts) || Node <- Nodes],
     {ok, FH2} = file:open(Path, [append]),
     io:format(FH2, "~n</body>~n</html>~n", []),
-    _ = file:close(FH),    Res.
+    _ = file:close(FH),
+    Res.
 
 list_reports() ->
     list_reports("all modules, please").
@@ -320,28 +330,34 @@ harvest_reqs(Timeout) ->
             []
     end.
 
+-spec safe_format(iolist(), list()) -> iolist().
 safe_format(Fmt, Args) ->
-    case get_limits() of
-        {undefined, _} ->
-            io_lib:format(Fmt, Args);
-        {TermMaxSize, FmtMaxBytes} ->
-            limited_fmt(Fmt, Args, TermMaxSize, FmtMaxBytes)
-    end.
+    {_, LimitedFmt} = get_limit_record(),
+    LimitedFmt(Fmt, Args).
 
+%% Not sure why this is exported, but it is ...
+-spec get_limits() -> lnlimits().
 get_limits() ->
+    {Limits, _} = get_limit_record(),
+    Limits.
+
+-spec get_limit_record() -> limitrec().
+get_limit_record() ->
     case erlang:get(?DICT_KEY) of
         undefined ->
-            case code:which(lager_trunc_io) of 
+            TruncIO = lager_trunc_io,
+            Rec = case code:which(TruncIO) of
                 non_existing ->
-                    {undefined, undefined};
+                    {{undefined, undefined}, fun io_lib:format/2};
                 _ ->
-                    Res = {get_env(cluster_info, term_max_size, default_size()),
-                           get_env(cluster_info, fmt_max_bytes, default_size())},
-                    erlang:put(?DICT_KEY, Res),
-                    Res
-            end;
-        T when is_tuple(T) ->
-            T
+                    TMax = get_env(cluster_info, term_max_size, default_size()),
+                    FMax = get_env(cluster_info, fmt_max_bytes, default_size()),
+                    {{TMax, FMax}, limited_fmt_fun(TruncIO, TMax, FMax)}
+            end,
+            _ = erlang:put(?DICT_KEY, Rec),
+            Rec;
+        {{_, _}, _} = Val ->
+            Val
     end.
 
 get_env(App, Key, Default) ->
@@ -350,25 +366,31 @@ get_env(App, Key, Default) ->
         {ok, Val} -> Val
     end.
 
-%% @doc Format Fmt and Args similar to what io_lib:format/2 does but with 
-%%      limits on how large the formatted string may be.
+%% Return a function that formats Fmt and Args similar to what io_lib:format/2
+%% does but with limits on how large the formatted string may be.
 %%
-%% If the Args list's size is larger than TermMaxSize, then the
-%% formatting is done by trunc_io:print/2, where FmtMaxBytes is used
-%% to limit the formatted string's size.
--spec limited_fmt(string(), list(), integer(), integer()) -> iolist().
-limited_fmt(Fmt, Args, TermMaxSize, FmtMaxBytes) ->
-    TermSize = erts_debug:flat_size(Args),
-    if TermSize > TermMaxSize ->
-            ["Oversize args for format \"", Fmt, "\": \n",
-             [
-              begin
-                  {Str, _} = lager_trunc_io:print(lists:nth(N, Args), FmtMaxBytes),
-                  ["  arg", integer_to_list(N), ": ", Str, "\n"]
-              end || N <- lists:seq(1, length(Args))
-             ]];
-       true ->
-            io_lib:format(Fmt, Args)
+%% If the Args list's size is larger than TermMaxSize, then the formatting is
+%% done by TruncIO:print/2, where FmtMaxBytes is used to limit the formatted
+%% string's size.
+%%
+%% TruncIO is assumed to be a module that exports print/2 that works like
+%% lager_trunc_io's.
+-spec limited_fmt_fun(module(), pos_integer(), pos_integer()) -> limitfmtfun().
+limited_fmt_fun(TruncIO, TermMaxSize, FmtMaxBytes) ->
+    fun(Fmt, Args) ->
+        % When you go looking for it, this is an undocumented API in the
+        % kernel that's been marked experimental for years.
+        case erts_debug:flat_size(Args) of
+            TermSize when TermSize > TermMaxSize ->
+                ["Oversize args for format \"", Fmt, "\": \n" | [
+                begin
+                    {Str, _} = TruncIO:print(lists:nth(N, Args), FmtMaxBytes),
+                    ["  arg", integer_to_list(N), ": ", Str, "\n"]
+                end || N <- lists:seq(1, erlang:length(Args))
+                ]];
+            _ ->
+                io_lib:format(Fmt, Args)
+        end
     end.
 
 reset_limits() -> erlang:erase(?DICT_KEY).
@@ -376,56 +398,16 @@ reset_limits() -> erlang:erase(?DICT_KEY).
 default_size() -> 256*1024.
 
 make_anchor(Node0, Mod, Name) ->
-    NameNoSp = re:replace(Name, " ", "",
-                          [{return, list}, global]),
+    NameNoSp = re:replace(Name, " ", "", [{return, list}, global]),
     Node = re:replace(atom_to_list(Node0), "'", "", [{return, list}, global]),
-    lists:flatten(io_lib:format("~s~w~s",
-                                [Node, Mod, NameNoSp])).
-
-%% From gmt_util.erl, also Apache Public License'd.
-
-%% @spec (server_spec()) -> {ok, monitor_ref()} | error
-%% @doc Simplify the arcane art of <tt>erlang:monitor/1</tt>:
-%%      create a monitor.
-%%
-%% The arg may be a PID or a {registered_name, node} tuple.
-%% In the case of the tuple, we will use rpc:call/4 to find the
-%% server's actual PID before calling erlang:monitor();
-%% therefore there is a risk of blocking by the RPC call.
-%% To avoid the risk of blocking in this case, use make_monitor/2.
-
-gmt_util_make_monitor(Pid) when is_pid(Pid) ->
-    case catch erlang:monitor(process, Pid) of
-        MRef when is_reference(MRef) ->
-            receive
-                {'DOWN', MRef, _, _, _} ->
-                    error
-            after 0 ->
-                    {ok, MRef}
-            end;
-        _ ->
-            error
-    end.
-
-%% @spec (pid()) -> {ok, monitor_ref()} | error
-%% @doc Simplify the arcane art of <tt>erlang:demonitor/1</tt>:
-%%      destroy a monitor.
-
-gmt_util_unmake_monitor(MRef) ->
-    erlang:demonitor(MRef),
-    receive
-        {'DOWN', MRef, _, _, _} ->
-            ok
-    after 0 ->
-            ok
-    end.
+    lists:flatten(io_lib:format("~s~w~s", [Node, Mod, NameNoSp])).
 
 send(Pid, IoData) ->
     ReList = [{"&", "\\&amp;"}, {"<", "\\&lt;"}],
-    Str = lists:foldl(fun({RE, Replace}, Str) ->
-                              re:replace(Str, RE, Replace, [{return,binary},
-                                                            global])
-                      end, IoData, ReList),
+    Str = lists:foldl(
+        fun({RE, Replace}, Data) ->
+            re:replace(Data, RE, Replace, [{return, binary}, global])
+        end, IoData, ReList),
     send2(Pid, Str).
 
 send2(Pid, IoData) ->
