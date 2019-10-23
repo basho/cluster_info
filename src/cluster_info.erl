@@ -24,6 +24,8 @@
 
 -define(DICT_KEY, '^_^--cluster_info').
 
+-include("cluster_info_compat.hrl").
+
 %% application callbacks
 %% Note: It is *not* necessary to start this application as a real/true OTP
 %%       application before you can use it.  The application behavior here
@@ -118,9 +120,9 @@ dump_node(Node, Path, Opts) when is_atom(Node), is_list(Path) ->
     {ok, MRef} = gmt_util_make_monitor(Remote),
     Res = try
               ok = collect_remote_info(Remote, FH)
-          catch X:Y ->
+          catch ?COMPAT_CATCH(X, Y, ST) ->
                   io:format("Error: ~P ~P at ~p\n",
-                            [X, 20, Y, 20, erlang:get_stacktrace()]),
+                            [X, 20, Y, 20, ?COMPAT_GET_STACKTRACE(ST)]),
                   error
           after
               catch file:close(FH),
@@ -262,9 +264,9 @@ dump_local_info(CPid, Opts) ->
                                           [Name, node()]),
                           format_noescape(CPid, "<pre>\n", []),
                           Fun(CPid)
-                      catch X:Y ->
+                      catch ?COMPAT_CATCH(X, Y, ST) ->
                               format(CPid, "Error in ~p: ~p ~p at ~p\n",
-                                     [Name, X, Y, erlang:get_stacktrace()])
+                                     [Name, X, Y, ?COMPAT_GET_STACKTRACE(ST)])
                       after
                           format_noescape(CPid, "</pre>\n", []),
                           format_noescape(CPid, "\n",[])
