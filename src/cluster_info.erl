@@ -44,8 +44,6 @@
 %% Really useful but ugly hack.
 -export([capture_io/2]).
 
--include("stacktrace.hrl").
-
 -type dump_option() :: {'modules', [atom()]}.
 -type dump_return() :: 'ok' | 'error'.
 -type filename()    :: string().
@@ -127,9 +125,9 @@ dump_node(Node, Path, Opts) when is_atom(Node), is_list(Path) ->
     MRef = monitor(process, Remote),
     try
         ok = collect_remote_info(Remote, FH)
-    catch ?_exception_(X, Y, StackToken) ->
+    catch Class:Reason:Stacktrace ->
         io:format("Error: ~P ~P at ~p\n",
-            [X, 20, Y, 20, ?_get_stacktrace_(StackToken)]),
+            [Class, 20, Reason, 20, Stacktrace]),
         error
     after
         demonitor(MRef, [flush]),
@@ -274,9 +272,9 @@ dump_local_info(CPid, Opts) ->
                                           [Name, node()]),
                           format_noescape(CPid, "<pre>\n", []),
                           Fun(CPid)
-                      catch ?_exception_(X, Y, StackToken) ->
+                      catch Class:Reason:Stacktrace ->
                               format(CPid, "Error in ~p: ~p ~p at ~p\n",
-                                     [Name, X, Y, ?_get_stacktrace_(StackToken)])
+                                     [Name, Class, Reason, Stacktrace])
                       after
                           format_noescape(CPid, "</pre>\n", []),
                           format_noescape(CPid, "\n",[])

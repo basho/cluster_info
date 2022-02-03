@@ -35,8 +35,6 @@
          loaded_modules/1, memory_hogs/2, non_zero_mailboxes/1, port_info/1,
          registered_names/1, time_and_date/1, timer_status/1]).
 
--include("stacktrace.hrl").
-
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -86,9 +84,9 @@ application_info(C) ->
          cluster_info:format(C, " ~p\n\n", [application:get_all_key(App)]),
          cluster_info:format(C, " Application:get_all_env(~p):\n", [App]),
          cluster_info:format(C, " ~p\n\n", [application:get_all_env(App)])
-     catch ?_exception_(X, Y, StackToken) ->
+     catch Class:Reason:Stacktrace ->
              cluster_info:format(C, "Error for ~p: ~p ~p at ~p\n",
-                                 [App, X, Y, ?_get_stacktrace_(StackToken)])
+                                 [App, Class, Reason, Stacktrace])
      end || App <- lists:sort([A || {A, _, _} <- application:which_applications()])].
 
 capture_ets_i(C) ->
@@ -176,9 +174,9 @@ loaded_modules(C) ->
     [try
          cluster_info:format(C, " Module ~p:\n", [Mod]),
          cluster_info:format(C, " ~p\n\n", [Mod:module_info()])
-     catch ?_exception_(X, Y, StackToken) ->
+     catch Class:Reason:Stacktrace ->
              cluster_info:format(C, "Error for ~p: ~p ~p at ~p\n",
-                                 [Mod, X, Y, ?_get_stacktrace_(StackToken)])
+                                 [Mod, Class, Reason, Stacktrace])
      end || Mod <- lists:sort([M || {M, _} <- code:all_loaded()])].
 
 memory_hogs(C, Num) ->
