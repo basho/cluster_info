@@ -33,7 +33,7 @@
          erlang_memory/1, erlang_statistics/1,
          erlang_system_info/1, global_summary/1, inet_db_summary/1,
          loaded_modules/1, memory_hogs/2, non_zero_mailboxes/1, port_info/1,
-         registered_names/1, time_and_date/1, timer_status/1]).
+         registered_names/1, time_and_date/1]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -58,7 +58,6 @@ cluster_info_generator_funs() ->
      {"Registered process name via regs()", fun capture_regs/1},
      {"Ports", fun port_info/1},
      {"Applications", fun application_info/1},
-     {"Timer status", fun timer_status/1},
      {"ETS summary", fun capture_ets_i/1},
      {"Nodes summary", fun nodes_info/1},
      {"net_kernel summary", fun capture_net_kernel_i/1},
@@ -252,14 +251,6 @@ time_and_date_new(C) ->
 -compile({inline, apply0/2}).
 apply0(Mod, Func) ->
     Mod:Func().
-
-timer_status(C) ->
-    case catch timer:get_status() of
-        {'EXIT', _} ->
-            cluster_info:format(C, " timer_server is not started");
-        Status ->
-            cluster_info:format(C, " ~p\n", [Status])
-    end.
 
 gmt_util_get_alarms() ->
     alarm_handler:get_alarms().
